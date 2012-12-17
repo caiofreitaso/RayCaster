@@ -1,8 +1,8 @@
-#include "math.h"
-#include "stdio.h"
+#include <math.h>
+#include <stdio.h>
 
 int debug = 0;
-GLdouble RAYCASTER_PRECISION = 0.0000000001;
+GLdouble RAYCASTER_PRECISION = 0.000000001;
 
 typedef struct {
 	GLdouble red;
@@ -53,7 +53,6 @@ typedef struct {
 } RayCaster;
 
 typedef struct {
-	Point position;
 	GLdouble reflection;
 	GLdouble refraction;
 	
@@ -63,20 +62,17 @@ typedef struct {
 	GLdouble ambient;
 
 	Color color;
+} Material;
+
+typedef struct {
+	Point position;
+	Material material;
 	GLdouble radius;
 } Sphere;
 
 typedef struct {
 	Point position;
-	GLdouble reflection;
-	GLdouble refraction;
-
-	GLdouble specular;
-	GLdouble shiny;
-	GLdouble diffuse;
-	GLdouble ambient;
-
-	Color color;
+	Material material;
 	GLdouble side;
 } Cube;
 
@@ -164,17 +160,17 @@ Sphere newSphere(GLdouble x, GLdouble y, GLdouble z,
 	ret.position.y = y;
 	ret.position.z = z;
 
-	ret.refraction = refraction;
-	ret.reflection = reflection;
+	ret.material.refraction = refraction;
+	ret.material.reflection = reflection;
 
-	ret.specular = specular;
-	ret.shiny = shiny;
-	ret.diffuse = diffuse;
-	ret.ambient = ambient;
+	ret.material.specular = specular;
+	ret.material.shiny = shiny;
+	ret.material.diffuse = diffuse;
+	ret.material.ambient = ambient;
 
-	ret.color.red   = red;
-	ret.color.green = green;
-	ret.color.blue  = blue;
+	ret.material.color.red   = red;
+	ret.material.color.green = green;
+	ret.material.color.blue  = blue;
 
 	ret.radius = radius;
 
@@ -193,17 +189,17 @@ Cube newCube(GLdouble x, GLdouble y, GLdouble z,
 	ret.position.y = y;
 	ret.position.z = z;
 
-	ret.refraction = refraction;
-	ret.reflection = reflection;
+	ret.material.refraction = refraction;
+	ret.material.reflection = reflection;
 
-	ret.specular = specular;
-	ret.shiny = shiny;
-	ret.diffuse = diffuse;
-	ret.ambient = ambient;
+	ret.material.specular = specular;
+	ret.material.shiny = shiny;
+	ret.material.diffuse = diffuse;
+	ret.material.ambient = ambient;
 
-	ret.color.red   = red;
-	ret.color.green = green;
-	ret.color.blue  = blue;
+	ret.material.color.red   = red;
+	ret.material.color.green = green;
+	ret.material.color.blue  = blue;
 
 	ret.side = side;
 
@@ -281,6 +277,15 @@ struct intersection intersectSphere(Point l, Point origin, Sphere object) {
 
 		GLubyte index = 0;
 
+		if (roots[0] < 0)
+			if (roots[1] < 0)
+				return ret;
+			else
+				index = 1;
+		else
+			index = 0;
+
+
 		if (lengths[1] < lengths[0])
 			index = 1;
 
@@ -306,7 +311,7 @@ Intersection intersectAllSpheres(Line ray, GLdouble strength, Sphere objects[], 
 		GLint final = -1, k;
 		for (k = 0; k < n_objects; ++k) {
 			test = intersectSphere(l, ray.origin, objects[k]);
-			if (test.len >= 0)
+			if (test.len > 0)
 				if (test.len < distance) {
 					distance = test.len;
 					intersected.len = test.len;
@@ -326,8 +331,12 @@ void intersectPlane(GLdouble half, Point center, Point pivot, Point a, Point b, 
 	GLdouble denominator = dot(l,n);
 	if (denominator != 0) {
 		GLdouble numerator = dot(sub(pivot,origin), n);
+		numerator /= denominator;
+		
+		if (numerator < RAYCASTER_PRECISION)
+			return;
 
-		Point p = add(origin, mul(numerator/denominator, l));
+		Point p = add(origin, mul(numerator, l));
 		Point q = sub(p, center);
 
 		GLdouble x = fabs(q.x)-half;
@@ -419,20 +428,35 @@ Intersection intersect(Line ray, GLdouble strength, Sphere spheres[], GLint n_sp
 		return cube;
 	return sphere;
 }
-Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sphere spheres[], GLint n_spheres, Cube cubes[], GLint n_cubes) {
-	GLdouble rayL = lenL(ray);
-	GLdouble strength = (rayL-result.len)/(2*rayL);
+Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sphere spheres[], GLint n_spheres, Cube cubes[], GLint n_cubes, GLdouble strength) {
 	Point normal = result.type ? result.normal : dv(sub(result.p, spheres[result.i].position), spheres[result.i].radius);
 	GLdouble originLen = len(ray.origin);
 	
-	Color color = result.type ? cubes[result.i].color : spheres[result.i].color;
-	GLdouble ambient = result.type ? cubes[result.i].ambient : spheres[result.i].ambient;
-	GLdouble specular = result.type ? cubes[result.i].specular : spheres[result.i].specular;
-	GLdouble shiny = result.type ? cubes[result.i].shiny : spheres[result.i].shiny;
-	GLdouble diffuse = result.type ? cubes[result.i].diffuse : spheres[result.i].diffuse;
+	Material material = result.type ? cubes[result.i].material : spheres[result.i].material;
+	Color ret = muldC(material.ambient, material.color);
 
+	if (material.reflection > 0) {
+		Point camera = dv(ray.origin, originLen);
 
-	Color ret = muldC(ambient, color);
+		Line reflectedRay = line(result.p, add(result.p, mul(strength, sub(mul(2*dot(normal,camera),normal),camera))));
+		Intersection reflection = intersect(reflectedRay, strength, spheres, n_spheres, cubes, n_cubes);
+
+		GLdouble str = strength-reflection.len;
+		
+		if (reflection.i >= 0) {
+			if (!eq(reflection.p,result.p))
+			{
+				ret = addC(muldC(1-material.reflection,ret),
+						   muldC(material.reflection,
+						   	     render(reflectedRay, reflection, sources, n_sources,
+						   	     	    spheres, n_spheres, cubes, n_cubes, str))
+					//green)
+					);
+			} else
+				ret = muldC(1-material.reflection,ret);
+		} else
+			ret = muldC(1-material.reflection,ret);
+	}
 
 	GLint i;
 	for (i = 0; i < n_sources; i++) {
@@ -442,35 +466,39 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 		Point light = sub(sources[i].position, result.p);
 		Line shadow = line(sources[i].position, result.p);
 
-		GLdouble lightL = len(light);
-		GLdouble iLight = sources[i].intensity / (lightL * lightL);
-
-		light = dv(light, lightL);
-		GLdouble NL = dot(normal, light);
-
 		Intersection isShadow = intersect(shadow, sources[i].intensity, spheres, n_spheres, cubes, n_cubes);
 		
 		if (eq(isShadow.p,result.p))
 		{
+			GLdouble lightL = len(light);
+			GLdouble iLight = sources[i].intensity / (lightL * lightL);
+
+			light = dv(light, lightL);
+
+			GLdouble NL = dot(normal, light);
 			Point reflected = sub(mul(2*NL,normal),light);
 			GLdouble phi = dot(reflected, ray.origin)/(len(reflected)*originLen);
 
 			if (phi > 0)
 			{
-				str = specular;
-				str *= pow(phi, shiny);
+				str = material.specular;
+				str *= pow(phi, material.shiny);
 				str *= iLight;
 				tmp = addC(tmp, muldC(str,sources[i].color));
 			}
 
-			str = diffuse;
-			str *= NL;
-			str *= iLight;
-			if (str < 0) str = 0;
-			tmp = addC(tmp, mul2C(color, muldC(str,sources[i].color)));
+			if (material.reflection < 1) {
+				str = material.diffuse * (1-material.reflection);
+				str *= NL;
+				str *= iLight;
+				if (str < 0) str = 0;
+				tmp = addC(tmp, mul2C(material.color, muldC(str,sources[i].color)));
+			}
 		}
-		ret = addC(ret, muldC(strength,tmp));
+		
+		ret = addC(ret, tmp);
 	}
+	ret = muldC(strength/lenL(ray), ret);
 
 	return ret;
 }
@@ -577,4 +605,4 @@ Color mul2C(Color a, Color b) {
 	b.blue *= a.blue;
 	return b;
 }
-void printC(Color a) { printf("%f %f %f", a.red, a.green, a.blue); }
+void printC(Color a) { printf("RGB: %f %f %f", a.red, a.green, a.blue); }

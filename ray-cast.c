@@ -1,7 +1,6 @@
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include <GL/glut.h>
-#include <stdio.h>
 #include "ray-cast.h"
 
 extern int debug;
@@ -44,9 +43,12 @@ void rayCast () {
 
 			debug = 0;
 			Intersection intersected = intersect(ray, myCamera.far, mySphere, N_SPHERES, myCube, N_CUBES);
-			if (intersected.i >= 0)
-				plotPixel(i, j, render(ray, intersected, myLights, 2, mySphere, N_SPHERES, myCube, N_CUBES));
-			else
+			if (intersected.i >= 0) {
+				GLdouble rayL = lenL(ray);
+				GLdouble strength = rayL-intersected.len;
+				
+				plotPixel(i, j, render(ray, intersected, myLights, 2, mySphere, N_SPHERES, myCube, N_CUBES, strength));
+			} else
 				plotPixel(i, j, black);
 		}
 	}
@@ -174,23 +176,23 @@ void init (int argc, char** argv, GLint x, GLint y) {
 
 int main(int argc, char** argv)
 {
-	myCamera = newCamera(0,0,2, 0,0,0, 0,1,0, 1,300,30);
+	myCamera = newCamera(-20,-20,32, 0,0,0, 0,1,0, 1,300,30);
 	//myCamera = newCamera(-12,-25,30, 7,7,0, 0,-1,0, 1,1000,30);
 	/*myCamera = newCamera(20,20,0, 5,5,0, 0,1,0, 1,1000,30);
 	int i, j;
 	for (i = 0; i < 10; ++i)
 		for(j = 0; j < 10; ++j)
 			mySphere[10*i+j] = newSphere(i,j,0, 1,0, 0.3,100,0.6,0.1, i*0.1,j*0.1,1, 0.4);*/
-	mySphere[0] = newSphere(2,2,2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[1] = newSphere(2,2,-2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[2] = newSphere(2,-2,2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[3] = newSphere(2,-2,-2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[4] = newSphere(-2,2,2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[5] = newSphere(-2,2,-2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[6] = newSphere(-2,-2,2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
-	mySphere[7] = newSphere(-2,-2,-2, 1,0, 0.2,100,0.5,0.3, 1,0,0, 0.2);
+	mySphere[0] = newSphere( 3, 3, 3, 0.3,0, 0.2,100,0.5,0.3, 1,0,0, 1);
+	mySphere[1] = newSphere( 3, 3,-3, 0.3,0, 0.2,100,0.5,0.3, 1,1,0, 1);
+	mySphere[2] = newSphere( 3,-3, 3, 0.3,0, 0.2,100,0.5,0.3, 1,0,1, 1);
+	mySphere[3] = newSphere( 3,-3,-3, 0.3,0, 0.2,100,0.5,0.3, 0,1,1, 1);
+	mySphere[4] = newSphere(-3, 3, 3, 0.3,0, 0.2,100,0.5,0.3, 0,1,0, 1);
+	mySphere[5] = newSphere(-3, 3,-3, 0.3,0, 0.2,100,0.5,0.3, 1,1,0, 1);
+	mySphere[6] = newSphere(-3,-3, 3, 0.3,0, 0.2,100,0.5,0.3, 1,0,1, 1);
+	mySphere[7] = newSphere(-3,-3,-3, 0.3,0, 0.2,100,0.5,0.3, 0,1,1, 1);
 
-	myCube[0] = newCube(0,0,0, 1,0, 0.2,100,0.5,0.5, 0,0,1, 4);
+	myCube[0] = newCube(0,0,0, 0.99,0, 0.2,100,0.5,0.5, 0.37,0.66,0.34, 4);
 
 	myLights[0] = newLight(5,5,10, 1,1,1, 100);
 	myLights[1] = newLight(5,5,10,1,1,1,0);
