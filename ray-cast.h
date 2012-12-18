@@ -245,7 +245,7 @@ Line getRay(RayCaster caster, GLdouble x, GLdouble y) {
 	dY = (GLdouble)caster.viewport[3] - y - 1;
 	ret.origin = caster.camera;
 	//gluUnProject (x, dY, 0.0, caster.modelview, caster.projection, caster.viewport, &ret.origin.x, &ret.origin.y, &ret.origin.z);
-	gluUnProject (x, dY, 1.0, caster.modelview, caster.projection, caster.viewport, &ret.destiny.x, &ret.destiny.y, &ret.destiny.z);
+	gluUnProject (x, dY, 1, caster.modelview, caster.projection, caster.viewport, &ret.destiny.x, &ret.destiny.y, &ret.destiny.z);
 	return ret;
 }
 
@@ -442,6 +442,7 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 		Intersection reflection = intersect(reflectedRay, strength, spheres, n_spheres, cubes, n_cubes);
 
 		GLdouble str = strength-reflection.len;
+		str *= material.reflection;
 		
 		if (reflection.i >= 0) {
 			if (!eq(reflection.p,result.p))
@@ -456,6 +457,40 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 				ret = muldC(1-material.reflection,ret);
 		} else
 			ret = muldC(1-material.reflection,ret);
+	}
+
+	if (material.refraction > 0) {
+		Point rayDirection = direction(ray);
+		GLdouble cosTi = -dot(normal,rayDirection);
+
+		Point transmitted = add(mul(material.refraction, rayDirection),
+							    mul(material.refraction * cosTi -
+							    	sqrt(1 + material.refraction * material.refraction *
+							    		 (cosTi * cosTi - 1)), normal));
+
+		GLdouble cosTt = dot(normal, transmitted);
+		
+		if (fabs(cosTt) > RAYCASTER_PRECISION) {
+			Line refractedRay = line(result.p, add(result.p, mul(strength, transmitted)));
+			Intersection refraction = intersect(refractedRay, strength, spheres, n_spheres, cubes, n_cubes);
+
+			GLdouble str = strength-refraction.len;
+			str *= material.refraction;
+
+			if (refraction.i >= 0) {
+				if (!eq(refraction.p,result.p))
+				{
+					ret = addC(muldC(1-material.refraction,ret),
+							   muldC(material.refraction,
+							   	     render(refractedRay, refraction, sources, n_sources,
+							   	     	    spheres, n_spheres, cubes, n_cubes, str))
+					//	green)
+						);
+				} else
+					ret = muldC(1-material.refraction,ret);
+			} else
+				ret = muldC(1-material.refraction,ret);		
+		}
 	}
 
 	GLint i;
@@ -476,8 +511,8 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 			light = dv(light, lightL);
 
 			GLdouble NL = dot(normal, light);
-			Point reflected = sub(mul(2*NL,normal),light);
-			GLdouble phi = dot(reflected, ray.origin)/(len(reflected)*originLen);
+			Point reflectedLight = sub(mul(2*NL,normal),light);
+			GLdouble phi = dot(reflectedLight, ray.origin)/(len(reflectedLight)*originLen);
 
 			if (phi > 0)
 			{
