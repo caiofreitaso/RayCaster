@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 int debug = 0;
 GLdouble RAYCASTER_PRECISION = 0.000000001;
@@ -49,12 +50,17 @@ void printC(Color a);
 typedef struct {
 	GLdouble modelview[16], projection[16];
 	GLint viewport[4];
+
 	Point camera;
+	GLdouble far;
+
+	Color **buffer;
 } RayCaster;
 
 typedef struct {
 	GLdouble reflection;
 	GLdouble refraction;
+	GLdouble transparency;
 	
 	GLdouble specular;
 	GLdouble shiny;
@@ -149,7 +155,7 @@ Light newLight(GLdouble x, GLdouble y, GLdouble z,
 }
 
 Sphere newSphere(GLdouble x, GLdouble y, GLdouble z,
-				 GLdouble reflection, GLdouble refraction,
+				 GLdouble reflection, GLdouble refraction, GLdouble transparency,
 				 GLdouble specular, GLdouble shiny, GLdouble diffuse, GLdouble ambient,
 				 GLdouble red, GLdouble green, GLdouble blue,
 				 GLdouble radius)
@@ -162,6 +168,7 @@ Sphere newSphere(GLdouble x, GLdouble y, GLdouble z,
 
 	ret.material.refraction = refraction;
 	ret.material.reflection = reflection;
+	ret.material.transparency = transparency;
 
 	ret.material.specular = specular;
 	ret.material.shiny = shiny;
@@ -178,7 +185,7 @@ Sphere newSphere(GLdouble x, GLdouble y, GLdouble z,
 }
 
 Cube newCube(GLdouble x, GLdouble y, GLdouble z,
-			 GLdouble reflection, GLdouble refraction,
+			 GLdouble reflection, GLdouble refraction, GLdouble transparency,
 			 GLdouble specular, GLdouble shiny, GLdouble diffuse, GLdouble ambient,
 			 GLdouble red, GLdouble green, GLdouble blue,
 			 GLdouble side)
@@ -191,6 +198,7 @@ Cube newCube(GLdouble x, GLdouble y, GLdouble z,
 
 	ret.material.refraction = refraction;
 	ret.material.reflection = reflection;
+	ret.material.transparency = transparency;
 
 	ret.material.specular = specular;
 	ret.material.shiny = shiny;
@@ -213,7 +221,13 @@ RayCaster newRayCaster(Camera c) {
 
 	RayCaster ret;
 	glGetIntegerv (GL_VIEWPORT, ret.viewport);
+	ret.buffer = malloc(ret.viewport[2] * sizeof(Color*));
+	int i = 0;
+	for (; i < ret.viewport[2]; i++)
+		ret.buffer[i] = malloc(ret.viewport[3] * sizeof(Color));
+
 	ret.camera = c.lookFrom;
+	ret.far = c.far;
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -238,6 +252,12 @@ RayCaster newRayCaster(Camera c) {
 
 	return ret;
 }
+void deleteRayCaster(RayCaster r) {
+	GLint i;
+	for (i = 0; i < r.viewport[2]; i++)
+		free(r.buffer[i]);
+	free(r.buffer);
+}
 
 Line getRay(RayCaster caster, GLdouble x, GLdouble y) {
 	static Line ret;
@@ -259,7 +279,7 @@ struct intersection intersectSphere(Point l, Point origin, Sphere object) {
 	struct intersection ret;
 	ret.len = -1;
 
-	if (delta < 0)
+	if (fabs(delta) < RAYCASTER_PRECISION)
 		return ret;
 	else {
 		Point solutions[2];
@@ -277,8 +297,8 @@ struct intersection intersectSphere(Point l, Point origin, Sphere object) {
 
 		GLubyte index = 0;
 
-		if (roots[0] < 0)
-			if (roots[1] < 0)
+		if (roots[0] < RAYCASTER_PRECISION)
+			if (roots[1] < RAYCASTER_PRECISION)
 				return ret;
 			else
 				index = 1;
@@ -428,12 +448,12 @@ Intersection intersect(Line ray, GLdouble strength, Sphere spheres[], GLint n_sp
 		return cube;
 	return sphere;
 }
-Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sphere spheres[], GLint n_spheres, Cube cubes[], GLint n_cubes, GLdouble strength) {
+Color shade(Line ray, Intersection result, Light sources[], GLint n_sources, Sphere spheres[], GLint n_spheres, Cube cubes[], GLint n_cubes, GLdouble strength) {
 	Point normal = result.type ? result.normal : dv(sub(result.p, spheres[result.i].position), spheres[result.i].radius);
 	GLdouble originLen = len(ray.origin);
 	
 	Material material = result.type ? cubes[result.i].material : spheres[result.i].material;
-	Color ret = muldC(material.ambient, material.color);
+	Color ret = muldC(material.ambient*(1-material.transparency), material.color);
 
 	if (material.reflection > 0) {
 		Point camera = dv(ray.origin, originLen);
@@ -449,7 +469,7 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 			{
 				ret = addC(muldC(1-material.reflection,ret),
 						   muldC(material.reflection,
-						   	     render(reflectedRay, reflection, sources, n_sources,
+						   	     shade(reflectedRay, reflection, sources, n_sources,
 						   	     	    spheres, n_spheres, cubes, n_cubes, str))
 					//green)
 					);
@@ -459,14 +479,14 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 			ret = muldC(1-material.reflection,ret);
 	}
 
-	if (material.refraction > 0) {
+	if (material.transparency > 0) {
 		Point rayDirection = direction(ray);
-		GLdouble cosTi = -dot(normal,rayDirection);
+		GLdouble cosTi = dot(normal,rayDirection);
 
-		Point transmitted = add(mul(material.refraction, rayDirection),
+		Point transmitted = sub(mul(material.refraction, rayDirection),
 							    mul(material.refraction * cosTi -
-							    	sqrt(1 + material.refraction * material.refraction *
-							    		 (cosTi * cosTi - 1)), normal));
+							    	sqrt(1 - material.refraction * material.refraction *
+							    		 (1 - cosTi * cosTi)), normal));
 
 		GLdouble cosTt = dot(normal, transmitted);
 		
@@ -480,16 +500,16 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 			if (refraction.i >= 0) {
 				if (!eq(refraction.p,result.p))
 				{
-					ret = addC(muldC(1-material.refraction,ret),
-							   muldC(material.refraction,
-							   	     render(refractedRay, refraction, sources, n_sources,
+					ret = addC(muldC(1-material.transparency,ret),
+							   muldC(1,//material.transparency,
+							   	     shade(refractedRay, refraction, sources, n_sources,
 							   	     	    spheres, n_spheres, cubes, n_cubes, str))
 					//	green)
 						);
 				} else
-					ret = muldC(1-material.refraction,ret);
+					ret = muldC(1-material.transparency,ret);
 			} else
-				ret = muldC(1-material.refraction,ret);		
+				ret = muldC(1-material.transparency,ret);
 		}
 	}
 
@@ -522,8 +542,8 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 				tmp = addC(tmp, muldC(str,sources[i].color));
 			}
 
-			if (material.reflection < 1) {
-				str = material.diffuse * (1-material.reflection);
+			if (material.reflection < 1 && material.transparency < 1) {
+				str = material.diffuse * (1-material.reflection) * (1-material.transparency);
 				str *= NL;
 				str *= iLight;
 				if (str < 0) str = 0;
@@ -533,10 +553,42 @@ Color render(Line ray, Intersection result, Light sources[], GLint n_sources, Sp
 		
 		ret = addC(ret, tmp);
 	}
-	ret = muldC(strength/lenL(ray), ret);
+
+	/*GLdouble length = lenL(ray);
+	ret = muldC(strength/(length*length), ret);*/
 
 	return ret;
 }
+void render(RayCaster rayCaster, Light sources[], GLint n_sources, Sphere spheres[], GLint n_spheres, Cube cubes[], GLint n_cubes) {
+	GLint i, j;
+
+	for (i = 0; i < rayCaster.viewport[2]; i++)
+		for (j = 0; j < rayCaster.viewport[3]; j++) {
+			Line ray = getRay(rayCaster, i, j);
+
+			Intersection intersected = intersect(ray, rayCaster.far, spheres, n_spheres, cubes, n_cubes);
+			if (intersected.i >= 0) {
+				GLdouble rayL = lenL(ray);
+				GLdouble strength = rayL-intersected.len;
+				
+				rayCaster.buffer[i][j] = shade(ray, intersected, sources, n_sources, spheres, n_spheres, cubes, n_cubes, strength);
+			} else
+				rayCaster.buffer[i][j] = black;
+
+			/*printf("%f%% ", 100*(i*rayCaster.viewport[3]+j)/total);
+			printC(rayCaster.buffer[i][j]);
+			printf("\n");*/
+		}
+
+
+	/*for (i = 0; i < rayCaster.viewport[2] - 1; i++)
+		for (j = 0; j < rayCaster.viewport[3] - 1; j++)
+			rayCaster.buffer[i][j] = addC(muldC(0.7,rayCaster.buffer[i][j]),
+										  addC(muldC(0.1,rayCaster.buffer[i][j+1]),
+										  	   addC(muldC(0.1,rayCaster.buffer[i+1][j]),
+										  	   	    muldC(0.1,rayCaster.buffer[i+1][j+1]))));*/
+}
+
 
 Point point(GLdouble x, GLdouble y, GLdouble z) {
 	Point r;
