@@ -54,18 +54,18 @@ namespace RayTrace {
 			circle,
 			hexagon
 		};
-		const GLdouble square_x[] = { -0.5, 0.5, 0.5, -0.5, 0, 0.5, 0, -0.5 };
-		const GLdouble square_y[] = { 0.5, 0.5, -0.5, -0.5, 0.5, 0, -0.5, 0 };
-		const GLdouble circle_x[] = { -0.3535533906, 0.3535533906,
+		const GLdouble square_x[] = { 0, -0.5, 0.5, 0.5, -0.5, 0, 0.5, 0, -0.5 };
+		const GLdouble square_y[] = { 0, 0.5, 0.5, -0.5, -0.5, 0.5, 0, -0.5, 0 };
+		const GLdouble circle_x[] = { 0, -0.3535533906, 0.3535533906,
 									   0.3535533906, -0.3535533906,
 									  0, 0.5, 0, -0.5 };
-		const GLdouble circle_y[] = { 0.3535533906, 0.3535533906,
+		const GLdouble circle_y[] = { 0, 0.3535533906, 0.3535533906,
 									  -0.3535533906, -0.3535533906,
 									  0.5, 0, -0.5, 0 };
-		const GLdouble hexagon_x[] = { -0.4330127019, 0.4330127019,
+		const GLdouble hexagon_x[] = { 0, -0.4330127019, 0.4330127019,
 									   0.4330127019, -0.4330127019,
 									   0, 0 };
-		const GLdouble hexagon_y[] = { 0.25, 0.25, -0.25, -0.25, 0.5, -0.5 };
+		const GLdouble hexagon_y[] = { 0, 0.25, 0.25, -0.25, -0.25, 0.5, -0.5 };
 	};
 
 	struct Color
@@ -257,7 +257,7 @@ namespace RayTrace {
 			Intersection ret;
 			ret.length = -1;
 
-			if (fabs(delta) > PRECISION) {
+			if (fabs(delta) >= PRECISION) {
 				Point solutions[2];
 				GLdouble roots[2];
 				GLdouble lengths[2];
@@ -272,8 +272,8 @@ namespace RayTrace {
 				lengths[0] = Line(ray.origin, solutions[0]).length();
 				lengths[1] = Line(ray.origin, solutions[1]).length();
 
-				if(fabs(roots[0]) < PRECISION)
-					if(fabs(roots[1]) < PRECISION)
+				if(roots[0] < PRECISION)
+					if(roots[1] < PRECISION)
 						return ret;
 					else
 						i = 1;
@@ -601,7 +601,9 @@ RayTrace::Point		operator-(RayTrace::Point a, RayTrace::Point b)
 
 bool operator==(RayTrace::Point a, RayTrace::Point b)
 {
-	return fabs(a.x - b.x) < RayTrace::PRECISION && fabs(a.y - b.y) < RayTrace::PRECISION && fabs(a.z - b.z) < RayTrace::PRECISION;
+	return fabs(a.x - b.x) < RayTrace::PRECISION &&
+		   fabs(a.y - b.y) < RayTrace::PRECISION &&
+		   fabs(a.z - b.z) < RayTrace::PRECISION;
 }
 bool operator!=(RayTrace::Point a, RayTrace::Point b) { return !(a == b); }
 
