@@ -20,7 +20,7 @@ void reshape(int w, int h)
 void keyboard (unsigned char key, int x, int y)
 {
 	static GLdouble taxa = 10;
-
+	x=y=x;
 	if (key == '+')
 		 taxa *= 10;
 	else if (key == '-')
@@ -94,7 +94,7 @@ void init (int argc, char** argv, GLint x, GLint y) {
 int main(int argc, char** argv)
 {
 	myCamera = new Camera(Point(0,0,0),Point(-30,-20,32),Point(0,1,0),1,300,10);
-	myRay = new RayTracer(*myCamera, Sampling::hexagon, 1);
+	myRay = new RayTracer(*myCamera, Sampling::hexagon, 6);
 	myRay->changeCamera(*myCamera);
 	
 	myWorld.add(new Sphere(Point(3,3,3),Point(0,1,0), 2),Material(0.0, 0.5,50,0.5,0.1,Color(1,0,0)));
