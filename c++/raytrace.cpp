@@ -109,8 +109,8 @@ int main(int argc, char** argv)
 	myWorld.add(new Cube(Point(0,0,0),Point(0,1,0), 4),Material(0.7, 0.5,50,0.5,0.1,Color(0,0,1)));
 
 
-	myWorld.add(Light(Point(0,-11,11),Color(1,1,1),250));
-	myWorld.add(Light(Point(-5,-5,10),Color(1,1,1),150));
+	myWorld.add(Light(Point(0,-11,11),Color(1,1,1),250, 0.1));
+	myWorld.add(Light(Point(-5,-5,10),Color(1,1,1),150, 0.1));
 
 	init (argc, argv, 100, 100);
 	return 0;

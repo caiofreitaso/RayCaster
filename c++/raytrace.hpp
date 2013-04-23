@@ -120,15 +120,6 @@ namespace RayTrace {
 		Intersection():length(-1),index(-1) { }
 	};
 
-	struct Light
-	{
-		Point position;
-		Color color;
-		GLdouble intensity;
-
-		Light(Point p, Color c, GLdouble i):position(p),color(c),intensity(i) { }
-	};
-
 	struct Camera
 	{
 		Point lookAt;
@@ -288,6 +279,38 @@ namespace RayTrace {
 			return ret;
 		}
 	};
+
+	struct Light
+	{
+		Point position;
+		Color color;
+		GLdouble intensity;
+		GLdouble radius;
+		bool cube;
+
+		Light(Point p, Color c, GLdouble i, GLdouble r, bool cube = false)
+		: position(p),color(c),intensity(i),radius(r),cube(cube) { }
+
+		Point* intersectionPoints(GLuint sampling, Point where) const
+		{
+			Point* ret = new Point[sampling];
+			Point normal = (position - where).unitary();
+			Point x = Point(1,0,0) * normal == 0 ?
+					  Point(0,0,1) - (Point(0,0,1)*normal)*normal :
+					  Point(1,0,0) - (Point(1,0,0)*normal)*normal;
+			Point y = x % normal;
+
+			if (cube)
+				for (GLuint i = 0; i < sampling; i++)
+					ret[i] = position + 2*Sampling::square_x[i+1]*radius*x + 2*Sampling::square_y[i+1]*radius*y;
+			else
+				for (GLuint i = 0; i < sampling; i++)
+					ret[i] = position + 2*Sampling::circle_x[i+1]*radius*x + 2*Sampling::circle_y[i+1]*radius*y;
+
+			return ret;
+		}
+	};
+
 
 	struct World {
 		std::vector<Object*> objects;
@@ -521,37 +544,40 @@ namespace RayTrace {
 					GLdouble str;
 					Color tmp = black;
 
-					Point light = world.lights[i].position - result.where;
-					Ray shadow = Line(world.lights[i].position, result.where).toRay(world.lights[i].intensity);
+					Point* lights = world.lights[i].intersectionPoints(8,result.where);
+					for (GLuint k = 0; k < 8; k++) {
+						Point light = lights[k] - result.where;
+						Ray shadow = Line(lights[k], result.where).toRay(world.lights[i].intensity);
 
-					Intersection isShadow = world.intersect(shadow);
-					
-					if (isShadow.where == result.where)
-					{
-						GLdouble iLight = world.lights[i].intensity / (light.length() * light.length());
-
-						light = light.unitary();
-
-						GLdouble NL = result.normal * light;
-						Point reflectedLight = (2*NL)*result.normal - light;
-						GLdouble phi = (reflectedLight * ray.origin)/(reflectedLight.length() * ray.origin.length());
-
-						if (phi > 0)
+						Intersection isShadow = world.intersect(shadow);
+						
+						if (isShadow.where == result.where)
 						{
-							str = material.specular;
-							str *= pow(phi, material.shinny);
-							str *= iLight;
-							tmp += str * world.lights[i].color;
-						}
-						if (material.reflection < 1) {
-							str = material.diffuse * (1 - material.reflection);
-							str *= NL;
-							str *= iLight;
-							if (str < 0) str = 0;
-							tmp += material.color * (str * world.lights[i].color);
+							GLdouble iLight = world.lights[i].intensity / (light.length() * light.length());
+
+							light = light.unitary();
+
+							GLdouble NL = result.normal * light;
+							Point reflectedLight = (2*NL)*result.normal - light;
+							GLdouble phi = (reflectedLight * ray.origin)/(reflectedLight.length() * ray.origin.length());
+
+							if (phi > 0)
+							{
+								str = material.specular;
+								str *= pow(phi, material.shinny);
+								str *= iLight;
+								tmp += str * world.lights[i].color;
+							}
+							if (material.reflection < 1) {
+								str = material.diffuse * (1 - material.reflection);
+								str *= NL;
+								str *= iLight;
+								if (str < 0) str = 0;
+								tmp += material.color * (str * world.lights[i].color);
+							}
 						}
 					}
-					
+					tmp *= 0.0625;
 					ret += tmp;
 				}
 
