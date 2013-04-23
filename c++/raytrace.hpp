@@ -419,6 +419,7 @@ namespace RayTrace {
 					plot(buffer[i][j],i,j);
 
 			glFlush();
+			printf("OK\n");
 		}
 
 		void prerender(World const& world)
@@ -568,7 +569,19 @@ namespace RayTrace {
 
 					if (reflection.index >= 0)
 						if (reflection.where != result.where)
-							ret += material.reflection * shade(world,reflected,reflection);
+							ret += (material.reflection) * shade(world,reflected,reflection);
+				}
+
+				for(GLuint i = 0; i < world.objects.size(); i++) {
+					Line diffuse = Line(world.objects[i]->position, result.where);
+					Ray diffuseRay = diffuse.toRay(ray.strength);
+					Intersection obj = world.intersect(diffuseRay);
+					if (obj.index >= 0)
+						if (obj.where != result.where) {
+							diffuseRay.strength -= obj.length;
+							diffuseRay.strength *= material.diffuse;
+							ret += (material.ambient/(obj.length*obj.length)) * shade(world,diffuseRay,obj);
+						}
 				}
 				
 				for (GLuint i = 0; i < world.lights.size(); i++) {

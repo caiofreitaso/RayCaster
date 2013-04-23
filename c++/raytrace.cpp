@@ -3,7 +3,7 @@
 
 using namespace RayTrace;
 
-World myWorld(1);
+World myWorld(0);
 Camera* myCamera;
 RayTracer* myRay;
 
@@ -93,23 +93,23 @@ void init (int argc, char** argv, GLint x, GLint y) {
 
 int main(int argc, char** argv)
 {
-	myCamera = new Camera(Point(0,0,0),Point(-30,-20,32),Point(0,1,0),1,300,10);
-	myRay = new RayTracer(*myCamera, Sampling::circle, 1, 30);
+	myCamera = new Camera(Point(0,-2,0),Point(-203,-155,104),Point(0,1,0),1,800,2);
+	myRay = new RayTracer(*myCamera, Sampling::circle, 1, 1);
 	myRay->changeCamera(*myCamera);
 	
-	myWorld.add(new Sphere(Point(3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,1)));
-	myWorld.add(new Sphere(Point(3,3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,0)));
-	myWorld.add(new Sphere(Point(3,-3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,0,1)));
-	myWorld.add(new Sphere(Point(3,-3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,0,0)));
-	myWorld.add(new Sphere(Point(-3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,1)));
-	myWorld.add(new Sphere(Point(-3,3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,0)));
-	myWorld.add(new Sphere(Point(-3,-3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
-	myWorld.add(new Sphere(Point(-3,-3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,1)));
+	//myWorld.add(new Sphere(Point(3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,1)));
+	//myWorld.add(new Sphere(Point(3,3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,0)));
+	//myWorld.add(new Sphere(Point(3,-3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,0,1)));
+	//myWorld.add(new Sphere(Point(3,-3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,0,0)));
+	//myWorld.add(new Sphere(Point(-3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,1)));
+	//myWorld.add(new Sphere(Point(-3,3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,0)));
+	//myWorld.add(new Sphere(Point(-3,-3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
+	myWorld.add(new Sphere(Point(0,-2,0),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.8,Color(1,1,1)));
 
-	myWorld.add(new Cube(Point(0,0,0),Point(0,1,0), 4),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
+	myWorld.add(new Cube(Point(0,40,0),Point(0,1,0), 80),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
 
 
-	myWorld.add(Light(Point(0,-11,11),Color(1,1,1),100, 0.5));
+	myWorld.add(Light(Point(0,-11,11),Color(1,1,1),250, 0.5));
 	myWorld.add(Light(Point(-5,-5,10),Color(1,1,1),50, 0.5));
 
 	init (argc, argv, 100, 100);
