@@ -54,6 +54,27 @@ namespace RayTrace {
 			circle,
 			hexagon
 		};
+
+		GLdouble** getPoints(format shape, GLuint count)
+		{
+			GLdouble** ret = new GLdouble*[2];
+			ret[0] = new GLdouble[count];
+			ret[1] = new GLdouble[count];
+
+			switch(shape)
+			{
+				case circle:
+					for(GLuint i = 0; i < count; i++) {
+						ret[0][i] = cos(i*6.28318530718/count);
+						ret[1][i] = sin(i*6.28318530718/count);
+					}
+				default:
+					break;
+			}
+
+			return ret;
+		}
+
 		const GLdouble square_x[] = { 0, -0.5, 0.5, 0.5, -0.5, 0, 0.5, 0, -0.5 };
 		const GLdouble square_y[] = { 0, 0.5, 0.5, -0.5, -0.5, 0.5, 0, -0.5, 0 };
 		const GLdouble circle_x[] = { 0, -0.3535533906, 0.3535533906,
@@ -303,9 +324,16 @@ namespace RayTrace {
 			if (cube)
 				for (GLuint i = 0; i < sampling; i++)
 					ret[i] = position + 2*Sampling::square_x[i+1]*radius*x + 2*Sampling::square_y[i+1]*radius*y;
-			else
+			else {
+				static GLuint n_points = 0;
+				static GLdouble** points = 0;
+				if (n_points != sampling) {
+					n_points = sampling;
+					points = Sampling::getPoints(Sampling::circle, sampling);
+				}
 				for (GLuint i = 0; i < sampling; i++)
-					ret[i] = position + 2*Sampling::circle_x[i+1]*radius*x + 2*Sampling::circle_y[i+1]*radius*y;
+					ret[i] = position + points[0][i]*radius*x + points[1][i]*radius*y;
+			}
 
 			return ret;
 		}
@@ -358,11 +386,12 @@ namespace RayTrace {
 		Camera camera;
 		Sampling::format format;
 		GLint sampling;
+		GLint softShadows;
 		
 		Color** buffer;
 
-		RayTracer(Camera c, Sampling::format f, GLint sampling)
-		: camera(c),format(f),sampling(sampling)
+		RayTracer(Camera c, Sampling::format f, GLint sampling, GLint softShadows)
+		: camera(c),format(f),sampling(sampling),softShadows(softShadows)
 		{
 			init();
 		}
@@ -520,6 +549,8 @@ namespace RayTrace {
 			{
 				Material material = world.materials[world.objects[result.index]->material];
 				Color ret = material.color * world.ambientIntensity * material.ambient;
+				GLdouble compensation = softShadows;
+				compensation = 1/compensation;
 
 				if (material.reflection > 0) {
 					Point origin = ray.origin.unitary();
@@ -544,8 +575,8 @@ namespace RayTrace {
 					GLdouble str;
 					Color tmp = black;
 
-					Point* lights = world.lights[i].intersectionPoints(8,result.where);
-					for (GLuint k = 0; k < 8; k++) {
+					Point* lights = world.lights[i].intersectionPoints(softShadows,result.where);
+					for (GLint k = 0; k < softShadows; k++) {
 						Point light = lights[k] - result.where;
 						Ray shadow = Line(lights[k], result.where).toRay(world.lights[i].intensity);
 
@@ -577,7 +608,7 @@ namespace RayTrace {
 							}
 						}
 					}
-					tmp *= 0.0625;
+					tmp *= compensation;
 					ret += tmp;
 				}
 
