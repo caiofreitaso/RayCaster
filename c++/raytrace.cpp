@@ -94,7 +94,7 @@ void init (int argc, char** argv, GLint x, GLint y) {
 int main(int argc, char** argv)
 {
 	myCamera = new Camera(Point(0,-2,0),Point(-203,-155,104),Point(0,1,0),1,800,2);
-	myRay = new RayTracer(*myCamera, Sampling::circle, 1, 1);
+	myRay = new RayTracer(*myCamera, Sampling::circle, 5, 10);
 	myRay->changeCamera(*myCamera);
 	
 	//myWorld.add(new Sphere(Point(3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(1,1,1)));

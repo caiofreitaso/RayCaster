@@ -573,14 +573,14 @@ namespace RayTrace {
 				}
 
 				for(GLuint i = 0; i < world.objects.size(); i++) {
-					Line diffuse = Line(world.objects[i]->position, result.where);
+					Line diffuse = Line(result.where,world.objects[i]->position);
 					Ray diffuseRay = diffuse.toRay(ray.strength);
 					Intersection obj = world.intersect(diffuseRay);
 					if (obj.index >= 0)
 						if (obj.where != result.where) {
 							diffuseRay.strength -= obj.length;
 							diffuseRay.strength *= material.diffuse;
-							ret += (material.ambient/(obj.length*obj.length)) * shade(world,diffuseRay,obj);
+							ret += (material.ambient/(obj.length)) * shade(world,diffuseRay,obj);
 						}
 				}
 				
