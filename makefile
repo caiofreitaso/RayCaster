@@ -1,4 +1,4 @@
-FLAGS=-W -Wall -Werror -lGL -lGLU -lglut -lm
+FLAGS=-W -Wall -Werror -lGL -lGLU -lglut -lm -O3
 all: rt rc
 
 rt: c++/raytrace.cpp c++/raytrace.hpp

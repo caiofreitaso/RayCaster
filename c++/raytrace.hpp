@@ -5,6 +5,7 @@
 #include "GL/glu.h"
 #include <math.h>
 #include <vector>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -413,6 +414,14 @@ namespace RayTrace {
 		}
 	};
 
+	struct RayCache
+	{
+		Point position;
+		Color color;
+		GLuint LRU;
+		RayCache():position(origin),color(black),LRU(0) { }
+	};
+
 	struct RayTracer
 	{
 		GLdouble modelview[16], projection[16];
@@ -420,14 +429,27 @@ namespace RayTrace {
 
 		Camera camera;
 		Sampling::format format;
+
 		GLint sampling;
 		GLint softShadows;
+		GLint interreflections;
+		GLdouble sampling_comp;
+		GLdouble sshadows_comp;
+		GLdouble ireflect_comp;
 		
 		Color** buffer;
 
-		RayTracer(Camera c, Sampling::format f, GLint sampling, GLint softShadows)
-		: camera(c),format(f),sampling(sampling),softShadows(softShadows)
+		RayTracer(Camera c, Sampling::format f, GLint sampling, GLint softShadows, GLint interreflections)
+		: camera(c),format(f),sampling(sampling),softShadows(softShadows),interreflections(interreflections)
 		{
+			sampling_comp = sampling;
+			sampling_comp = 1/sampling_comp;
+
+			sshadows_comp = softShadows;
+			sshadows_comp = 1/sshadows_comp;
+
+			ireflect_comp = interreflections;
+			ireflect_comp = 1/ireflect_comp;
 			init();
 		}
 		~RayTracer()
@@ -459,9 +481,6 @@ namespace RayTrace {
 
 		void prerender(World const& world)
 		{
-			GLdouble compensation = sampling;
-			compensation = 1/compensation;
-
 			static Ray ray(origin,origin);
 			static Intersection intersected;
 
@@ -477,7 +496,7 @@ namespace RayTrace {
 								if (intersected.index >= 0)
 									buffer[i][j] += shade(world,ray,intersected);
 							}
-							buffer[i][j] *= compensation;
+							buffer[i][j] *= sampling_comp;
 						}
 					break;
 				case Sampling::square:
@@ -490,7 +509,7 @@ namespace RayTrace {
 								if (intersected.index >= 0)
 									buffer[i][j] += shade(world,ray,intersected);
 							}
-							buffer[i][j] *= compensation;
+							buffer[i][j] *= sampling_comp;
 						}
 					break;
 				case Sampling::hexagon:
@@ -503,7 +522,7 @@ namespace RayTrace {
 								if (intersected.index >= 0)
 									buffer[i][j] += shade(world,ray,intersected);
 							}
-							buffer[i][j] *= compensation;
+							buffer[i][j] *= sampling_comp;
 						}
 					break;
 			}
@@ -589,20 +608,33 @@ namespace RayTrace {
 			}
 			Color shade(World const& world, Ray& ray, Intersection const& result) const
 			{
+				static RayCache cache[256];
+				GLuint index, lru = UINT_MAX;
+				for (index = 0; index < 256; index++)
+					if (cache[index].LRU)
+						if (cache[index].position == result.where) {
+							cache[index].LRU++;
+							return cache[index].color;
+						}
+
+				for (GLuint i = 0; i < 256; i++)
+					if (cache[i].LRU < lru) {
+						index = i;
+						lru = cache[i].LRU;
+					}
+
+
 				Material material = world.materials[world.objects[result.index]->material];
 				Color ret = material.color * world.ambientIntensity * material.ambient;
 				
-				GLdouble compensation = softShadows;
-				compensation = 1/compensation;
+				GLdouble str;
 
-				static GLdouble str;
-
-				static Color tmp;
-				static Line tmpLine(origin,origin);
-				static Ray tmpRay(origin,origin);
-				static Intersection tmpIntsc;
+				Color tmp;
+				Line tmpLine(origin,origin);
+				Ray tmpRay(origin,origin);
+				Intersection tmpIntsc;
 				
-				static Point* points = 0;
+				Point* points = 0;
 
 				if (material.reflection > 0) {
 					Point origin = ray.origin.unitary();
@@ -624,9 +656,9 @@ namespace RayTrace {
 
 				for(GLuint i = 0; i < world.objects.size(); i++) {
 					tmp = black;
-					points = intersectionPoints(4, world.objects[i]->position,
+					points = intersectionPoints(interreflections, world.objects[i]->position,
 						result.where,world.objects[i]->scale);
-					for(GLuint j = 0; j < 4; j++) {
+					for(GLint j = 0; j < interreflections; j++) {
 						tmpLine = Line(result.where,points[j]); 
 						tmpRay = tmpLine.toRay(ray.strength);
 						tmpIntsc = world.intersect(tmpRay);
@@ -639,8 +671,9 @@ namespace RayTrace {
 								if (tmpIntsc.where != result.where)
 									tmp += material.diffuse * shade(world,tmpRay,tmpIntsc);
 					}
-					tmp *= 0.25;
+					tmp *= ireflect_comp;
 					ret += tmp;
+					delete[] points;
 				}
 				
 				for (GLuint i = 0; i < world.lights.size(); i++) {
@@ -679,10 +712,14 @@ namespace RayTrace {
 							}
 						}
 					}
-					tmp *= compensation;
+					tmp *= sshadows_comp;
 					ret += tmp;
 					delete[] points;
 				}
+
+				cache[index].LRU = 1;
+				cache[index].position = result.where;
+				cache[index].color = ret;
 
 				return ret;
 			}
