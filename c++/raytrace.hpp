@@ -594,7 +594,6 @@ namespace RayTrace {
 				}
 				
 				for(GLuint i = 0; i < world.objects.size(); i++) {
-<<<<<<< HEAD
 					tmp = black;
 					Point* points = intersectionPoints(2, world.objects[i]->position,
 						result.where,world.objects[i]->scale);
@@ -610,17 +609,6 @@ namespace RayTrace {
 					}
 					tmp *= 0.5;
 					ret += tmp;
-=======
-					Line diffuse = Line(result.where,world.objects[i]->position);
-					Ray diffuseRay = diffuse.toRay(ray.strength);
-					Intersection obj = world.intersect(diffuseRay);
-					if (obj.index >= 0)
-						if (obj.where != result.where) {
-							diffuseRay.strength -= obj.length;
-							diffuseRay.strength *= material.diffuse;
-							ret += (material.ambient/(obj.length)) * shade(world,diffuseRay,obj);
-						}
->>>>>>> e0d34917d9a7c5ae15114cdb923f92b13b40c822
 				}
 				
 				for (GLuint i = 0; i < world.lights.size(); i++) {
