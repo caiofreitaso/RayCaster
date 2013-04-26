@@ -579,15 +579,15 @@ namespace RayTrace {
 
 
 		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp parallel shared(rt,world) private(ray,intersected) num_threads(8)
+		#pragma omp parallel shared(rt,world) private(ray,intersected)
 		#endif
 		{
 			#ifndef RAYTRACE_NONPARALLEL
-			#pragma omp for
+			#pragma omp for schedule(static)
 			#endif
 			for (GLint i = 0; i < rt.viewport[2]; i++) {
 				#ifndef RAYTRACE_NONPARALLEL
-				#pragma omp parallel for
+				#pragma omp parallel for schedule(static)
 				#endif
 				for (GLint j = 0; j < rt.viewport[3]; j++) {
 					rt.buffer[i][j] = black;
