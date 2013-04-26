@@ -9,9 +9,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef RAYTRACE_NONPARALLEL
+#include <omp.h>
+#endif
+
 namespace RayTrace {
 	struct Point;
+	struct Ray;
 	struct Color;
+
+	struct Intersection;
+	struct World;
+	struct RayTracer;
+	
+	void prerender(RayTracer& rt, World const& world);
+	Color shade(RayTracer const& rt, World const& world, Ray& ray, Intersection const& result);
 }
 
 GLdouble			operator*(RayTrace::Point a, RayTrace::Point b);
@@ -119,6 +131,7 @@ namespace RayTrace {
 		Point origin, direction;
 		GLdouble strength;
 
+		Ray():origin(RayTrace::origin),direction(RayTrace::origin),strength(0) { }
 		Ray(Point a, Point b):origin(a),direction(b),strength(0) { }
 		Ray(Point a, Point b, GLdouble str):origin(a),direction(b),strength(str) { }
 	};
@@ -127,6 +140,7 @@ namespace RayTrace {
 	{
 		Point origin, destiny;
 
+		Line ():origin(RayTrace::origin),destiny(RayTrace::origin) { }
 		Line (Point a, Point b):origin(a),destiny(b) { }
 
 		Point toPoint() { return origin - destiny; }
@@ -140,8 +154,8 @@ namespace RayTrace {
 	{
 		Point where, normal;
 		GLdouble length;
-		GLint index;
-		Intersection():length(-1),index(-1) { }
+		GLuint index;
+		Intersection():length(-1),index(0) { }
 	};
 
 	struct Camera
@@ -290,7 +304,7 @@ namespace RayTrace {
 						return ret;
 					else
 						i = 1;
-				else if (lengths[1] < lengths[0])
+				else if (roots[1] > PRECISION && lengths[1] < lengths[0])
 					i = 1;
 
 				ret.where = solutions[i];
@@ -353,10 +367,11 @@ namespace RayTrace {
 		Point* ret = new Point[sampling];
 		ret[0] = position;
 		if (sampling > 1) {
-			static Point normal;
-			static Point x;
-			static Point y;
-			static GLdouble** points = 0;
+			Point normal;
+			Point x;
+			Point y;
+
+			GLdouble** points = 0;
 
 			normal = (position - where).unitary();
 			x = Point(1,0,0) * normal == 0 ?
@@ -398,7 +413,6 @@ namespace RayTrace {
 		Intersection intersect(Ray const& ray) const
 		{
 			Intersection ret, tmp;
-			ret.index = -1;
 			GLdouble distance = ray.strength;
 			for(GLuint i = 0; i < objects.size(); i++) {
 				tmp = objects[i]->intersect(ray);
@@ -470,66 +484,15 @@ namespace RayTrace {
 			glClear (GL_COLOR_BUFFER_BIT);
 			
 			if (changed)
-				prerender(world);
+				prerender(*this,world);
 			for (GLint i = 0; i < viewport[2]; i++)
 				for (GLint j = 0; j < viewport[3]; j++)
 					plot(buffer[i][j],i,j);
 
 			glFlush();
-			printf("OK\n");
 		}
 
-		void prerender(World const& world)
-		{
-			static Ray ray(origin,origin);
-			static Intersection intersected;
-
-			switch(format)
-			{
-				case Sampling::circle:
-					for (GLint i = 0; i < viewport[2]; i++)
-						for (GLint j = 0; j < viewport[3]; j++) {
-							buffer[i][j] = black;
-							for (GLint k = 0; k < sampling; k++) {
-								ray = getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k]);
-								intersected = world.intersect(ray);
-								if (intersected.index >= 0)
-									buffer[i][j] += shade(world,ray,intersected);
-							}
-							buffer[i][j] *= sampling_comp;
-						}
-					break;
-				case Sampling::square:
-					for (GLint i = 0; i < viewport[2]; i++)
-						for (GLint j = 0; j < viewport[3]; j++) {
-							buffer[i][j] = black;
-							for (GLint k = 0; k < sampling; k++) {
-								ray = getRay(i + Sampling::square_x[k],j + Sampling::square_y[k]);
-								intersected = world.intersect(ray);
-								if (intersected.index >= 0)
-									buffer[i][j] += shade(world,ray,intersected);
-							}
-							buffer[i][j] *= sampling_comp;
-						}
-					break;
-				case Sampling::hexagon:
-					for (GLint i = 0; i < viewport[2]; i++)
-						for (GLint j = 0; j < viewport[3]; j++) {
-							buffer[i][j] = black;
-							for (GLint k = 0; k < sampling; k++) {
-								ray = getRay(i + Sampling::hexagon_x[k],j + Sampling::hexagon_y[k]);
-								intersected = world.intersect(ray);
-								if (intersected.index >= 0)
-									buffer[i][j] += shade(world,ray,intersected);
-							}
-							buffer[i][j] *= sampling_comp;
-						}
-					break;
-			}
-
-			
-			changed = false;
-		}
+		
 		void refresh()
 		{
 			for (GLint i = 0; i < viewport[2]; i++)
@@ -537,24 +500,25 @@ namespace RayTrace {
 			delete[] buffer;
 			init();
 		}
-		private:
-			bool changed;
-			Ray getRay(GLdouble x, GLdouble y) const
-			{
-				static GLdouble dY = 0;
-				static Point end;
-				static Ray ret(origin,origin);
 
-				dY = viewport[3];
-				dY -= y+1;
-				gluUnProject(x, dY, 1, modelview, projection, viewport, &end.x, &end.y, &end.z);
-				//Point front;
-				//gluUnProject(x, dY, 0, modelview, projection, viewport, &front.x, &front.y, &front.z);
-				//printf("RAY: %f,%f,%f -> %f,%f,%f\n", camera.lookFrom.x,camera.lookFrom.y,camera.lookFrom.z,end.x,end.y,end.z);
-				ret = Line(camera.lookFrom,end).toRay();
-				ret.strength = camera.far;
-				return ret;
-			}
+		Ray getRay(GLdouble x, GLdouble y) const
+		{
+			static GLdouble dY = 0;
+			static Point end;
+			static Ray ret(origin,origin);
+
+			dY = viewport[3];
+			dY -= y+1;
+			gluUnProject(x, dY, 1, modelview, projection, viewport, &end.x, &end.y, &end.z);
+			//Point front;
+			//gluUnProject(x, dY, 0, modelview, projection, viewport, &front.x, &front.y, &front.z);
+			//printf("RAY: %f,%f,%f -> %f,%f,%f\n", camera.lookFrom.x,camera.lookFrom.y,camera.lookFrom.z,end.x,end.y,end.z);
+			ret = Line(camera.lookFrom,end).toRay();
+			ret.strength = camera.far;
+			return ret;
+		}
+		bool changed;
+		private:			
 			void plot(Color const& c, GLdouble x, GLdouble y) const
 			{
 				glMatrixMode(GL_MODELVIEW);
@@ -606,124 +570,193 @@ namespace RayTrace {
 				
 				glMatrixMode(GL_MODELVIEW);
 			}
-			Color shade(World const& world, Ray& ray, Intersection const& result) const
-			{
-				static RayCache cache[256];
-				GLuint index, lru = UINT_MAX;
-				for (index = 0; index < 256; index++)
-					if (cache[index].LRU)
-						if (cache[index].position == result.where) {
-							cache[index].LRU++;
-							return cache[index].color;
+	};
+
+	void prerender(RayTracer& rt, World const& world)
+	{
+		static Ray ray;
+		static Intersection intersected;
+
+
+
+		switch(rt.format)
+		{
+			case Sampling::circle:
+				#ifndef RAYTRACE_NONPARALLEL
+				#pragma omp parallel shared(rt,world) private(ray,intersected) num_threads(8)
+				#endif
+				{
+					#ifndef RAYTRACE_NONPARALLEL
+					#pragma omp for
+					#endif
+					for (GLint i = 0; i < rt.viewport[2]; i++) {
+						#ifndef RAYTRACE_NONPARALLEL
+						#pragma omp parallel for
+						#endif
+						for (GLint j = 0; j < rt.viewport[3]; j++) {
+							rt.buffer[i][j] = black;
+							for (GLint k = 0; k < rt.sampling; k++) {
+								ray = rt.getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k]);
+								intersected = world.intersect(ray);
+								if (intersected.length > 0)
+									rt.buffer[i][j] += ((rt.camera.far-intersected.length)/rt.camera.far) * shade(rt,world,ray,intersected);
+							}
+							rt.buffer[i][j] *= rt.sampling_comp;
 						}
-
-				for (GLuint i = 0; i < 256; i++)
-					if (cache[i].LRU < lru) {
-						index = i;
-						lru = cache[i].LRU;
 					}
+				}
+				break;
+			case Sampling::square:
+				for (GLint i = 0; i < rt.viewport[2]; i++)
+					for (GLint j = 0; j < rt.viewport[3]; j++) {
+						rt.buffer[i][j] = black;
+						for (GLint k = 0; k < rt.sampling; k++) {
+							ray = rt.getRay(i + Sampling::square_x[k],j + Sampling::square_y[k]);
+							intersected = world.intersect(ray);
+							if (intersected.length > 0)
+								rt.buffer[i][j] += shade(rt,world,ray,intersected);
+						}
+						rt.buffer[i][j] *= rt.sampling_comp;
+					}
+				break;
+			case Sampling::hexagon:
+				for (GLint i = 0; i < rt.viewport[2]; i++)
+					for (GLint j = 0; j < rt.viewport[3]; j++) {
+						rt.buffer[i][j] = black;
+						for (GLint k = 0; k < rt.sampling; k++) {
+							ray = rt.getRay(i + Sampling::hexagon_x[k],j + Sampling::hexagon_y[k]);
+							intersected = world.intersect(ray);
+							if (intersected.length > 0)
+								rt.buffer[i][j] += shade(rt,world,ray,intersected);
+						}
+						rt.buffer[i][j] *= rt.sampling_comp;
+					}
+				break;
+		}
 
+		
+		rt.changed = false;
+	}
 
-				Material material = world.materials[world.objects[result.index]->material];
-				Color ret = material.color * world.ambientIntensity * material.ambient;
-				
-				GLdouble str;
-
-				Color tmp;
-				Line tmpLine(origin,origin);
-				Ray tmpRay(origin,origin);
-				Intersection tmpIntsc;
-				
-				Point* points = 0;
-
-				if (material.reflection > 0) {
-					Point origin = ray.origin.unitary();
-					//printf("%f %f %f -> %f %f %f\n", l.origin.x, l.origin.y, l.origin.z, l.destiny.x, l.destiny.y, l.destiny.z);
-					tmpRay = Line(result.where, result.where + ray.strength * ((2*(result.normal*origin)) * result.normal - origin)).toRay(ray.strength);
-
-					tmpIntsc = world.intersect(tmpRay);
-
-					tmpRay.strength -= tmpIntsc.length;
-					tmpRay.strength *= material.reflection;
-					
-					ret *= 1 - material.reflection;
-
-					if (tmpRay.strength > PRECISION)
-						if (tmpIntsc.index >= 0)
-							if (tmpIntsc.where != result.where)
-								ret += (material.reflection) * shade(world,tmpRay,tmpIntsc);
+	Color shade(RayTracer const& rt, World const& world, Ray& ray, Intersection const& result)
+	{
+		static RayCache cache[24];
+		GLuint index, lru = UINT_MAX;
+		for (index = 0; index < 24; index++)
+			if (cache[index].LRU)
+				if (cache[index].position == result.where) {
+					cache[index].LRU++;
+					return cache[index].color;
 				}
 
-				for(GLuint i = 0; i < world.objects.size(); i++) {
+		for (GLuint i = 0; i < 24; i++)
+			if (cache[i].LRU < lru) {
+				index = i;
+				lru = cache[i].LRU;
+			}
+
+
+		Material material = world.materials[world.objects[result.index]->material];
+		Color ret = material.color * world.ambientIntensity * material.ambient;
+		
+		GLdouble str;
+
+		Color tmp;
+		Line tmpLine;
+		Ray tmpRay;
+		Intersection tmpIntsc;
+		
+		Point* points = 0;
+
+		if (material.reflection > 0) {
+			Point origin = ray.origin.unitary();
+			//printf("%f %f %f -> %f %f %f\n", l.origin.x, l.origin.y, l.origin.z, l.destiny.x, l.destiny.y, l.destiny.z);
+			tmpRay = Line(result.where, result.where + ray.strength * ((2*(result.normal*origin)) * result.normal - origin)).toRay(ray.strength);
+
+			tmpIntsc = world.intersect(tmpRay);
+
+			tmpRay.strength -= tmpIntsc.length;
+			tmpRay.strength *= material.reflection;
+			
+			ret *= 1 - material.reflection;
+
+			if (tmpRay.strength/rt.camera.far > PRECISION)
+				if (tmpIntsc.length > 0)
+					if (tmpIntsc.where != result.where)
+						ret += (material.reflection) * shade(rt,world,tmpRay,tmpIntsc);
+		}
+
+		if (rt.interreflections)
+			for(GLuint i = 0; i < world.objects.size(); i++)
+				if (i != result.index) {
 					tmp = black;
-					points = intersectionPoints(interreflections, world.objects[i]->position,
+					points = intersectionPoints(rt.interreflections, world.objects[i]->position,
 						result.where,world.objects[i]->scale);
-					for(GLint j = 0; j < interreflections; j++) {
+					for(GLint j = 0; j < rt.interreflections; j++) {
 						tmpLine = Line(result.where,points[j]); 
 						tmpRay = tmpLine.toRay(ray.strength);
 						tmpIntsc = world.intersect(tmpRay);
 
 						tmpRay.strength -= tmpIntsc.length;
-						tmpRay.strength *= material.specular*material.ambient;
+						tmpRay.strength *= material.diffuse*material.ambient;
 						
-						//if (tmpRay.strength > PRECISION)
-							if (tmpIntsc.index >= 0)
+						if (tmpRay.strength/rt.camera.far > PRECISION)
+							if (tmpIntsc.length > 0)
 								if (tmpIntsc.where != result.where)
-									tmp += material.diffuse * shade(world,tmpRay,tmpIntsc);
+									tmp += material.diffuse * shade(rt,world,tmpRay,tmpIntsc);
 					}
-					tmp *= ireflect_comp;
+					tmp *= rt.ireflect_comp;
 					ret += tmp;
 					delete[] points;
 				}
+		
+		for (GLuint i = 0; i < world.lights.size(); i++) {
+			tmp = black;
+
+			points = world.lights[i].intersectionPoints(rt.softShadows,result.where);
+			for (GLint k = 0; k < rt.softShadows; k++) {
+				Point light = points[k] - result.where;
+				Ray shadow = Line(points[k], result.where).toRay(world.lights[i].intensity);
+
+				Intersection isShadow = world.intersect(shadow);
 				
-				for (GLuint i = 0; i < world.lights.size(); i++) {
-					tmp = black;
+				if (isShadow.where == result.where)
+				{
+					GLdouble iLight = world.lights[i].intensity / (light.length() * light.length());
 
-					points = world.lights[i].intersectionPoints(softShadows,result.where);
-					for (GLint k = 0; k < softShadows; k++) {
-						Point light = points[k] - result.where;
-						Ray shadow = Line(points[k], result.where).toRay(world.lights[i].intensity);
+					light = light.unitary();
 
-						Intersection isShadow = world.intersect(shadow);
-						
-						if (isShadow.where == result.where)
-						{
-							GLdouble iLight = world.lights[i].intensity / (light.length() * light.length());
+					GLdouble NL = result.normal * light;
+					Point reflectedLight = (2*NL)*result.normal - light;
+					GLdouble phi = (reflectedLight * ray.origin)/(reflectedLight.length() * ray.origin.length());
 
-							light = light.unitary();
-
-							GLdouble NL = result.normal * light;
-							Point reflectedLight = (2*NL)*result.normal - light;
-							GLdouble phi = (reflectedLight * ray.origin)/(reflectedLight.length() * ray.origin.length());
-
-							if (phi > 0)
-							{
-								str = material.specular;
-								str *= pow(phi, material.shinny);
-								str *= iLight;
-								tmp += str * world.lights[i].color;
-							}
-							if (material.reflection < 1) {
-								str = material.diffuse * (1 - material.reflection);
-								str *= NL;
-								str *= iLight;
-								if (str < 0) str = 0;
-								tmp += material.color * (str * world.lights[i].color);
-							}
-						}
+					if (phi > 0)
+					{
+						str = material.specular;
+						str *= pow(phi, material.shinny);
+						str *= iLight;
+						tmp += str * world.lights[i].color;
 					}
-					tmp *= sshadows_comp;
-					ret += tmp;
-					delete[] points;
+					if (material.reflection < 1) {
+						str = material.diffuse * (1 - material.reflection);
+						str *= NL;
+						str *= iLight;
+						if (str < 0) str = 0;
+						tmp += material.color * (str * world.lights[i].color);
+					}
 				}
-
-				cache[index].LRU = 1;
-				cache[index].position = result.where;
-				cache[index].color = ret;
-
-				return ret;
 			}
-	};
+			tmp *= rt.sshadows_comp;
+			ret += tmp;
+			delete[] points;
+		}
+
+		cache[index].LRU = 1;
+		cache[index].position = result.where;
+		cache[index].color = ret;
+
+		return ret;
+	}
 
 }
 
