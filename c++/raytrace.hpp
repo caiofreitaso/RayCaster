@@ -578,62 +578,29 @@ namespace RayTrace {
 		static Intersection intersected;
 
 
-
-		switch(rt.format)
+		#ifndef RAYTRACE_NONPARALLEL
+		#pragma omp parallel shared(rt,world) private(ray,intersected) num_threads(8)
+		#endif
 		{
-			case Sampling::circle:
+			#ifndef RAYTRACE_NONPARALLEL
+			#pragma omp for
+			#endif
+			for (GLint i = 0; i < rt.viewport[2]; i++) {
 				#ifndef RAYTRACE_NONPARALLEL
-				#pragma omp parallel shared(rt,world) private(ray,intersected) num_threads(8)
+				#pragma omp parallel for
 				#endif
-				{
-					#ifndef RAYTRACE_NONPARALLEL
-					#pragma omp for
-					#endif
-					for (GLint i = 0; i < rt.viewport[2]; i++) {
-						#ifndef RAYTRACE_NONPARALLEL
-						#pragma omp parallel for
-						#endif
-						for (GLint j = 0; j < rt.viewport[3]; j++) {
-							rt.buffer[i][j] = black;
-							for (GLint k = 0; k < rt.sampling; k++) {
-								ray = rt.getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k]);
-								intersected = world.intersect(ray);
-								if (intersected.length > 0)
-									rt.buffer[i][j] += ((rt.camera.far-intersected.length)/rt.camera.far) * shade(rt,world,ray,intersected);
-							}
-							rt.buffer[i][j] *= rt.sampling_comp;
-						}
+				for (GLint j = 0; j < rt.viewport[3]; j++) {
+					rt.buffer[i][j] = black;
+					for (GLint k = 0; k < rt.sampling; k++) {
+						ray = rt.getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k]);
+						intersected = world.intersect(ray);
+						if (intersected.length > 0)
+							rt.buffer[i][j] += shade(rt,world,ray,intersected);
 					}
+					rt.buffer[i][j] *= rt.sampling_comp;
 				}
-				break;
-			case Sampling::square:
-				for (GLint i = 0; i < rt.viewport[2]; i++)
-					for (GLint j = 0; j < rt.viewport[3]; j++) {
-						rt.buffer[i][j] = black;
-						for (GLint k = 0; k < rt.sampling; k++) {
-							ray = rt.getRay(i + Sampling::square_x[k],j + Sampling::square_y[k]);
-							intersected = world.intersect(ray);
-							if (intersected.length > 0)
-								rt.buffer[i][j] += shade(rt,world,ray,intersected);
-						}
-						rt.buffer[i][j] *= rt.sampling_comp;
-					}
-				break;
-			case Sampling::hexagon:
-				for (GLint i = 0; i < rt.viewport[2]; i++)
-					for (GLint j = 0; j < rt.viewport[3]; j++) {
-						rt.buffer[i][j] = black;
-						for (GLint k = 0; k < rt.sampling; k++) {
-							ray = rt.getRay(i + Sampling::hexagon_x[k],j + Sampling::hexagon_y[k]);
-							intersected = world.intersect(ray);
-							if (intersected.length > 0)
-								rt.buffer[i][j] += shade(rt,world,ray,intersected);
-						}
-						rt.buffer[i][j] *= rt.sampling_comp;
-					}
-				break;
+			}
 		}
-
 		
 		rt.changed = false;
 	}
@@ -680,7 +647,7 @@ namespace RayTrace {
 			
 			ret *= 1 - material.reflection;
 
-			if (tmpRay.strength/rt.camera.far > PRECISION)
+			if (tmpRay.strength/rt.camera.far > 0.01)
 				if (tmpIntsc.length > 0)
 					if (tmpIntsc.where != result.where)
 						ret += (material.reflection) * shade(rt,world,tmpRay,tmpIntsc);
@@ -700,7 +667,7 @@ namespace RayTrace {
 						tmpRay.strength -= tmpIntsc.length;
 						tmpRay.strength *= material.diffuse*material.ambient;
 						
-						if (tmpRay.strength/rt.camera.far > PRECISION)
+						if (tmpRay.strength/rt.camera.far > 0.01)
 							if (tmpIntsc.length > 0)
 								if (tmpIntsc.where != result.where)
 									tmp += material.diffuse * shade(rt,world,tmpRay,tmpIntsc);
@@ -750,6 +717,8 @@ namespace RayTrace {
 			ret += tmp;
 			delete[] points;
 		}
+
+		ret *= (rt.camera.far-result.length)/rt.camera.far;
 
 		cache[index].LRU = 1;
 		cache[index].position = result.where;
