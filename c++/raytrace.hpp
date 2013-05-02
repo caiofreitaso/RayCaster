@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "MersenneTwister.h"
 
 #ifndef RAYTRACE_NONPARALLEL
 #include <omp.h>
@@ -37,11 +38,11 @@ RayTrace::Point		operator-(RayTrace::Point a, RayTrace::Point b);
 bool operator==(RayTrace::Point a, RayTrace::Point b);
 bool operator!=(RayTrace::Point a, RayTrace::Point b);
 
-RayTrace::Point&	operator+=(RayTrace::Point& a, RayTrace::Point& b);
-RayTrace::Point&	operator-=(RayTrace::Point& a, RayTrace::Point& b);
+RayTrace::Point&	operator+=(RayTrace::Point& a, RayTrace::Point b);
+RayTrace::Point&	operator-=(RayTrace::Point& a, RayTrace::Point b);
 RayTrace::Point&	operator*=(RayTrace::Point& a, GLdouble b);
 RayTrace::Point&	operator/=(RayTrace::Point& a, GLdouble b);
-RayTrace::Point&	operator%=(RayTrace::Point& a, RayTrace::Point& b);
+RayTrace::Point&	operator%=(RayTrace::Point& a, RayTrace::Point b);
 
 
 
@@ -68,9 +69,37 @@ namespace RayTrace {
 			hexagon
 		};
 
+		GLdouble** getPoints(format shape, GLuint count, MTRand& random)
+		{
+			GLdouble** ret = new GLdouble*[2];
+	
+			ret[0] = new GLdouble[count];
+			ret[1] = new GLdouble[count];
+
+			switch(shape)
+			{
+				case circle:
+					for(GLuint i = 0; i < count; i++) {
+						ret[0][i] = 6.28318530718 * random.rand();
+						ret[1][i] = random.rand() + random.rand();
+						if (ret[1][i] > 1)
+							ret[1][i] = 2 - ret[1][i];
+					}
+					for(GLuint i = 0; i < count; i++) {
+						GLdouble a = ret[0][i];
+						ret[0][i] = ret[1][i]*cos(a);
+						ret[1][i] *= sin(a);
+					}
+				default:
+					break;
+			}
+
+			return ret;
+		}
 		GLdouble** getPoints(format shape, GLuint count)
 		{
 			GLdouble** ret = new GLdouble*[2];
+	
 			ret[0] = new GLdouble[count];
 			ret[1] = new GLdouble[count];
 
@@ -88,8 +117,10 @@ namespace RayTrace {
 			return ret;
 		}
 
-		const GLdouble square_x[] = { 0, -0.5, 0.5, 0.5, -0.5, 0, 0.5, 0, -0.5 };
-		const GLdouble square_y[] = { 0, 0.5, 0.5, -0.5, -0.5, 0.5, 0, -0.5, 0 };
+		const GLdouble square_x[] = { 0, -0.5, 0.5,  0.5, -0.5,
+										  0,   0.5,  0,   -0.5 };
+		const GLdouble square_y[] = { 0,  0.5, 0.5, -0.5, -0.5,
+										  0.5, 0,   -0.5,  0 };
 		const GLdouble circle_x[] = { 0, -0.3535533906, 0.3535533906,
 									   0.3535533906, -0.3535533906,
 									  0, 0.5, 0, -0.5 };
@@ -168,10 +199,12 @@ namespace RayTrace {
 		GLdouble far;
 		GLdouble fovY;
 
-		Camera(Point at, Point from, Point up, GLdouble near, GLdouble far, GLdouble fovy)
-		:lookAt(at),lookFrom(from),up(up),near(near),far(far),fovY(fovy) { }
+		GLdouble lensHeight;
+
+		Camera(Point at, Point from, Point up, GLdouble near, GLdouble far, GLdouble fovy, GLdouble lensHeight)
+		:lookAt(at),lookFrom(from),up(up),near(near),far(far),fovY(fovy),lensHeight(lensHeight) { }
 		Camera(Camera const& c)
-		:lookAt(c.lookAt),lookFrom(c.lookFrom),up(c.up),near(c.near),far(c.far),fovY(c.fovY) { }
+		:lookAt(c.lookAt),lookFrom(c.lookFrom),up(c.up),near(c.near),far(c.far),fovY(c.fovY),lensHeight(c.lensHeight) { }
 	};
 
 	struct Material
@@ -316,54 +349,10 @@ namespace RayTrace {
 		}
 	};
 
-	struct Light
+	Point* intersectionPoints(GLuint sampling, Point position, Point where, GLdouble radius, bool random = true)
 	{
-		Point position;
-		Color color;
-		GLdouble intensity;
-		GLdouble radius;
-		bool cube;
+		static MTRand twister;
 
-		Light(Point p, Color c, GLdouble i, GLdouble r, bool cube = false)
-		: position(p),color(c),intensity(i),radius(r),cube(cube) { }
-
-		Point* intersectionPoints(GLuint sampling, Point where) const
-		{
-			Point* ret = new Point[sampling];
-
-			ret[0] = position;
-
-			if (sampling) {
-				static Point normal;
-				static Point x;
-				static Point y;
-
-				normal = (position - where).unitary();
-				x = Point(1,0,0) * normal == 0 ?
-					Point(0,0,1) - (Point(0,0,1)*normal)*normal :
-					Point(1,0,0) - (Point(1,0,0)*normal)*normal;
-				y = x % normal;
-
-				if (cube)
-					for (GLuint i = 0; i < sampling; i++)
-						ret[i] = position + 2*Sampling::square_x[i+1]*radius*x + 2*Sampling::square_y[i+1]*radius*y;
-				else {
-					static GLuint n_points = 0;
-					static GLdouble** points = 0;
-					if (n_points != sampling) {
-						n_points = sampling;
-						points = Sampling::getPoints(Sampling::circle, sampling);
-					}
-					for (GLuint i = 1; i < sampling; i++)
-						ret[i] = position + points[0][i]*radius*x + points[1][i]*radius*y;
-				}
-			}
-			return ret;
-		}
-	};
-
-	Point* intersectionPoints(GLuint sampling, Point position, Point where, GLdouble radius)
-	{
 		Point* ret = new Point[sampling];
 		ret[0] = position;
 		if (sampling > 1) {
@@ -379,7 +368,11 @@ namespace RayTrace {
 				Point(1,0,0) - (Point(1,0,0)*normal)*normal;
 			y = x % normal;
 
-			points = Sampling::getPoints(Sampling::circle, sampling);
+			if (random)
+				points = Sampling::getPoints(Sampling::circle, sampling, twister);
+			else
+				points = Sampling::getPoints(Sampling::circle, sampling);
+
 			for (GLuint i = 1; i < sampling; i++)
 				ret[i] = position + points[0][i]*radius*x + points[1][i]*radius*y;
 
@@ -390,6 +383,20 @@ namespace RayTrace {
 
 		return ret;
 	}
+
+	struct Light
+	{
+		Point position;
+		Color color;
+		GLdouble intensity;
+		GLdouble radius;
+		bool cube;
+
+		Light(Point p, Color c, GLdouble i, GLdouble r, bool cube = false)
+		: position(p),color(c),intensity(i),radius(r),cube(cube) { }
+
+		Point* intersectionPoints(GLuint sampling, Point where) const { return RayTrace::intersectionPoints(sampling,position,where,radius); }
+	};
 
 	struct World {
 		std::vector<Object*> objects;
@@ -430,10 +437,41 @@ namespace RayTrace {
 
 	struct RayCache
 	{
-		Point position;
-		Color color;
-		GLuint LRU;
-		RayCache():position(origin),color(black),LRU(0) { }
+		Ray ray;
+		GLdouble strength;
+		GLuint index;
+	};
+
+	struct RayData
+	{
+		std::vector<RayCache> rays;
+		std::vector<Intersection> intersections;
+		std::vector<std::vector<GLuint> > indexes;
+		std::vector<Color> colors;
+
+		void addRay(Ray ray, GLdouble str, GLuint i)
+		{
+			RayCache r;
+			r.ray = ray;
+			r.strength = str;
+			r.index = i;
+			rays.push_back(r);
+		}
+
+		void intersect(World const& world)
+		{
+			for(GLuint i = 0; i < rays.size(); i++)
+				intersections.push_back(world.intersect(rays[i].ray));
+			for (GLuint i = 0; i < intersections.size(); i++)
+				for(GLuint j = i+1; j < intersections.size();)
+					if (intersections[i].where == intersections[j].where)
+						indexes[i].push_back(j);
+			for (GLuint i = 0; i < intersections.size(); i++)
+				for(GLuint j = i+1; j < intersections.size();)
+					if (intersections[i].where == intersections[j].where)
+						intersections.erase(intersections.begin()+j);
+		}
+
 	};
 
 	struct RayTracer
@@ -444,18 +482,26 @@ namespace RayTrace {
 		Camera camera;
 		Sampling::format format;
 
-		GLint sampling;
-		GLint softShadows;
-		GLint interreflections;
+		GLuint depthSampling;
+		GLuint sampling;
+		GLuint softShadows;
+		GLuint interreflections;
+		GLdouble depthsam_comp;
 		GLdouble sampling_comp;
 		GLdouble sshadows_comp;
 		GLdouble ireflect_comp;
 		
 		Color** buffer;
 
-		RayTracer(Camera c, Sampling::format f, GLint sampling, GLint softShadows, GLint interreflections)
-		: camera(c),format(f),sampling(sampling),softShadows(softShadows),interreflections(interreflections)
+		RayTracer(Camera c, Sampling::format f,
+				  GLuint depthSampling, GLuint sampling,
+				  GLuint softShadows, GLuint interreflections)
+		: camera(c),format(f),sampling(sampling),depthSampling(depthSampling),
+		  softShadows(softShadows),interreflections(interreflections)
 		{
+			depthsam_comp = depthSampling;
+			depthsam_comp = 1/depthsam_comp;
+
 			sampling_comp = sampling;
 			sampling_comp = 1/sampling_comp;
 
@@ -501,20 +547,26 @@ namespace RayTrace {
 			init();
 		}
 
-		Ray getRay(GLdouble x, GLdouble y) const
+		Ray* getRay(GLdouble x, GLdouble y, GLuint rays) const
 		{
-			static GLdouble dY = 0;
-			static Point end;
-			static Ray ret(origin,origin);
+			GLdouble dY = 0;
+			Point end;
+			Ray* ret;
 
 			dY = viewport[3];
 			dY -= y+1;
-			gluUnProject(x, dY, 1, modelview, projection, viewport, &end.x, &end.y, &end.z);
+			gluUnProject(x, dY, 0, modelview, projection, viewport, &end.x, &end.y, &end.z);
 			//Point front;
 			//gluUnProject(x, dY, 0, modelview, projection, viewport, &front.x, &front.y, &front.z);
 			//printf("RAY: %f,%f,%f -> %f,%f,%f\n", camera.lookFrom.x,camera.lookFrom.y,camera.lookFrom.z,end.x,end.y,end.z);
-			ret = Line(camera.lookFrom,end).toRay();
-			ret.strength = camera.far;
+			Point* p = intersectionPoints(rays, camera.lookFrom, end, camera.lensHeight,false);
+			
+			ret = new Ray[rays];
+			for (GLuint i = 0; i < rays; i++)
+				ret[i] = Line(p[i],end).toRay(camera.far);
+			
+			delete[] p;
+			
 			return ret;
 		}
 		bool changed;
@@ -574,30 +626,32 @@ namespace RayTrace {
 
 	void prerender(RayTracer& rt, World const& world)
 	{
-		static Ray ray;
+		static Ray* ray;
 		static Intersection intersected;
+		static Color tmp;
 
 
 		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp parallel shared(rt,world) private(ray,intersected)
+		#pragma omp parallel shared(rt,world)
 		#endif
 		{
 			#ifndef RAYTRACE_NONPARALLEL
-			#pragma omp for schedule(static)
+			#pragma omp for schedule(static) private(tmp,ray,intersected)
 			#endif
 			for (GLint i = 0; i < rt.viewport[2]; i++) {
-				#ifndef RAYTRACE_NONPARALLEL
-				#pragma omp parallel for schedule(static)
-				#endif
 				for (GLint j = 0; j < rt.viewport[3]; j++) {
-					rt.buffer[i][j] = black;
-					for (GLint k = 0; k < rt.sampling; k++) {
-						ray = rt.getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k]);
-						intersected = world.intersect(ray);
-						if (intersected.length > 0)
-							rt.buffer[i][j] += shade(rt,world,ray,intersected);
+					tmp = black;
+					for (GLuint k = 0; k < rt.sampling; k++) {
+						ray = rt.getRay(i + Sampling::circle_x[k],j + Sampling::circle_y[k], rt.depthSampling);
+						for (GLuint r = 0; r < rt.depthSampling; r++) {
+							intersected = world.intersect(ray[r]);
+							if (intersected.length > 0)
+								tmp += shade(rt,world,ray[r],intersected);
+						}
+						tmp *= rt.depthsam_comp;
+						delete[] ray;
 					}
-					rt.buffer[i][j] *= rt.sampling_comp;
+					rt.buffer[i][j] = tmp * rt.sampling_comp;
 				}
 			}
 		}
@@ -607,26 +661,10 @@ namespace RayTrace {
 
 	Color shade(RayTracer const& rt, World const& world, Ray& ray, Intersection const& result)
 	{
-		static RayCache cache[24];
-		GLuint index, lru = UINT_MAX;
-		for (index = 0; index < 24; index++)
-			if (cache[index].LRU)
-				if (cache[index].position == result.where) {
-					cache[index].LRU++;
-					return cache[index].color;
-				}
-
-		for (GLuint i = 0; i < 24; i++)
-			if (cache[i].LRU < lru) {
-				index = i;
-				lru = cache[i].LRU;
-			}
-
-
 		Material material = world.materials[world.objects[result.index]->material];
 		Color ret = material.color * world.ambientIntensity * material.ambient;
 		
-		GLdouble str;
+		GLdouble str,str2;
 
 		Color tmp;
 		Line tmpLine;
@@ -653,37 +691,13 @@ namespace RayTrace {
 						ret += (material.reflection) * shade(rt,world,tmpRay,tmpIntsc);
 		}
 
-		if (rt.interreflections)
-			for(GLuint i = 0; i < world.objects.size(); i++)
-				if (i != result.index) {
-					tmp = black;
-					points = intersectionPoints(rt.interreflections, world.objects[i]->position,
-						result.where,world.objects[i]->scale);
-					for(GLint j = 0; j < rt.interreflections; j++) {
-						tmpLine = Line(result.where,points[j]); 
-						tmpRay = tmpLine.toRay(ray.strength);
-						tmpIntsc = world.intersect(tmpRay);
-
-						tmpRay.strength -= tmpIntsc.length;
-						tmpRay.strength *= material.diffuse*material.ambient;
-						
-						if (tmpRay.strength/rt.camera.far > 0.01)
-							if (tmpIntsc.length > 0)
-								if (tmpIntsc.where != result.where)
-									tmp += material.diffuse * shade(rt,world,tmpRay,tmpIntsc);
-					}
-					tmp *= rt.ireflect_comp;
-					ret += tmp;
-					delete[] points;
-				}
-		
 		for (GLuint i = 0; i < world.lights.size(); i++) {
-			tmp = black;
+			str = str2 = 0;
 
 			points = world.lights[i].intersectionPoints(rt.softShadows,result.where);
-			for (GLint k = 0; k < rt.softShadows; k++) {
+			for (GLuint k = 0; k < rt.softShadows; k++) {
 				Point light = points[k] - result.where;
-				Ray shadow = Line(points[k], result.where).toRay(world.lights[i].intensity);
+				Ray shadow = Line(points[k],result.where).toRay(world.lights[i].intensity);
 
 				Intersection isShadow = world.intersect(shadow);
 				
@@ -698,31 +712,49 @@ namespace RayTrace {
 					GLdouble phi = (reflectedLight * ray.origin)/(reflectedLight.length() * ray.origin.length());
 
 					if (phi > 0)
-					{
-						str = material.specular;
-						str *= pow(phi, material.shinny);
-						str *= iLight;
-						tmp += str * world.lights[i].color;
-					}
+						str2 += material.specular * pow(phi, material.shinny) * iLight;
+
 					if (material.reflection < 1) {
-						str = material.diffuse * (1 - material.reflection);
-						str *= NL;
-						str *= iLight;
-						if (str < 0) str = 0;
-						tmp += material.color * (str * world.lights[i].color);
+						GLdouble tmpStr = material.diffuse * (1 - material.reflection) * NL * iLight;
+						if (tmpStr > 0)
+							str += tmpStr;
 					}
 				}
 			}
-			tmp *= rt.sshadows_comp;
-			ret += tmp;
+			str *= rt.sshadows_comp;
+			str2 *= rt.sshadows_comp;
+			ret += (str * world.lights[i].color) * material.color + (str2 * world.lights[i].color);
 			delete[] points;
 		}
 
-		ret *= (rt.camera.far-result.length)/rt.camera.far;
+		if (rt.interreflections)
+			for(GLuint i = 0; i < world.objects.size(); i++)
+				if (i != result.index) {
+					tmp = black;
+					points = intersectionPoints(rt.interreflections, world.objects[i]->position,
+						result.where,world.objects[i]->scale);
+					for(GLuint j = 0; j < rt.interreflections; j++) {
+						tmpLine = Line(result.where,points[j]); 
+						tmpRay = tmpLine.toRay(ray.strength);
+						tmpIntsc = world.intersect(tmpRay);
 
-		cache[index].LRU = 1;
-		cache[index].position = result.where;
-		cache[index].color = ret;
+						tmpRay.strength -= tmpIntsc.length;
+						tmpRay.strength *= material.diffuse;
+						
+						if (tmpRay.strength/rt.camera.far > 0.01)
+							if (tmpIntsc.length > PRECISION)
+								if (tmpIntsc.where != result.where) {
+									str = material.diffuse * (result.normal * (tmpIntsc.where - result.where).unitary());
+									if (str > 0)
+											tmp += str * shade(rt,world,tmpRay,tmpIntsc);
+								}
+					}
+					tmp *= rt.ireflect_comp;
+					ret += ((ret * tmp) + tmp);
+					delete[] points;
+				}
+
+		ret *= (rt.camera.far-result.length)/rt.camera.far;
 
 		return ret;
 	}
@@ -775,14 +807,14 @@ bool operator==(RayTrace::Point a, RayTrace::Point b)
 }
 bool operator!=(RayTrace::Point a, RayTrace::Point b) { return !(a == b); }
 
-RayTrace::Point&	operator+=(RayTrace::Point& a, RayTrace::Point& b)
+RayTrace::Point&	operator+=(RayTrace::Point& a, RayTrace::Point b)
 {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	return a;
 }
-RayTrace::Point&	operator-=(RayTrace::Point& a, RayTrace::Point& b)
+RayTrace::Point&	operator-=(RayTrace::Point& a, RayTrace::Point b)
 {
 	a.x -= b.x;
 	a.y -= b.y;
@@ -803,7 +835,7 @@ RayTrace::Point&	operator/=(RayTrace::Point& a, GLdouble b)
 	a.z /= b;
 	return a;
 }
-RayTrace::Point&	operator%=(RayTrace::Point& a, RayTrace::Point& b)
+RayTrace::Point&	operator%=(RayTrace::Point& a, RayTrace::Point b)
 {
 	a = a % b;
 	return a;
