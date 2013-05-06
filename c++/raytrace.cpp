@@ -6,13 +6,13 @@ using namespace RayTrace;
 
 World myWorld(0);
 Camera* myCamera;
-RayData<1,1,1,3>* myRay;
+RayData<1,1,1,1> myRay;
 
 void render() {
 	static time_t begin, end;
 	
 	time(&begin);
-	render(*myRay,myWorld);
+	render(myRay,myWorld);
 	time(&end);
 
 	printf("%.f\n", difftime(end,begin));
@@ -23,7 +23,7 @@ void reshape(int w, int h)
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	glOrtho(0, w, 0, h, 0, 100);
-	myRay->refresh();
+	myRay.refresh();
 }
 
 void keyboard (unsigned char key, int x, int y)
@@ -38,52 +38,52 @@ void keyboard (unsigned char key, int x, int y)
 		switch (key) {
 			case 'w':
 				myCamera->lookFrom.y -= taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'a':
 				myCamera->lookFrom.x -= taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 's':
 				myCamera->lookFrom.y += taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'd':
 				myCamera->lookFrom.x += taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'q':
 				myCamera->lookFrom.z -= taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'e':
 				myCamera->lookFrom.z += taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'z':
 				myCamera->fovY -= taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'x':
 				myCamera->fovY += taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'r':
 				myCamera->lensHeight -= taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			case 'f':
 				myCamera->lensHeight += taxa;
-				myRay->changeCamera(*myCamera);
+				myRay.changeCamera(*myCamera);
 				glutPostRedisplay();
 				break;
 			default:
@@ -114,13 +114,13 @@ int main(int argc, char** argv)
 {
 	//myCamera = new Camera(Point(0,0,0),Point(-30,-40,32),Point(0,1,0),20,3000,30,1);
 	myCamera = new Camera(Point(0,0,0),Point(10,-20,10),Point(0,1,0),30,3000,7,0.3);
-	myRay = new RayData<1,1,1,3>(*myCamera);
+	myRay.changeCamera(*myCamera);
 	
 	/*myWorld.add(new Sphere(Point( 3, 3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,1,1)));
 	myWorld.add(new Sphere(Point( 3, 3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,1,0)));
 	myWorld.add(new Sphere(Point( 3,-3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,0,1)));
 	myWorld.add(new Sphere(Point( 3,-3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,0,0)));
-	myWorld.add(new Sphere(Point(-3, 3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(0,1,1)));
+	myWorld.add(new SpherePoint(-3, 3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(0,1,1)));
 	myWorld.add(new Sphere(Point(-3, 3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(0,1,0)));
 	myWorld.add(new Sphere(Point(-3,-3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(0,0,1)));
 	myWorld.add(new Sphere(Point(-3,-3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,1,1)));
@@ -141,6 +141,6 @@ int main(int argc, char** argv)
 	myWorld.add(Light(Point(5,-5,10),Color(1,1,1),400, 5));
 	myWorld.add(Light(Point(-5,-5,-10),Color(1,1,1),250, 3));
 
-	init (argc, argv, 320, 240);
+	init (argc, argv, 32, 24);
 	return 0;
 }

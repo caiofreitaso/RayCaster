@@ -517,7 +517,7 @@ namespace RayTrace {
 		: compensation(1/((GLdouble)(antialias * depthRays))),
 		  shadows_compensation(1/((GLdouble)shadows)),
 		  interreflections_compensation(1/((GLdouble)interreflections)),
-		  buffer(0),changed(false)
+		  buffer(0),camera(Camera(origin,origin,origin,0,0,0,0)),changed(false)
 		{ }
 		RayData(Camera c)
 		: compensation(1/((GLdouble)(antialias * depthRays))),
@@ -762,7 +762,7 @@ namespace RayTrace {
 					}
 				}
 				tmp *= data.interreflections_compensation;
-				ret += ret * tmp;
+				ret += material.diffuse * (ret * tmp);
 			}
 
 		#ifdef RAYTRACE_CACHE
