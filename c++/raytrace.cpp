@@ -6,13 +6,13 @@ using namespace RayTrace;
 
 World myWorld(0);
 Camera* myCamera;
-RayTracer* myRay;
+RayData<1,1,1,3>* myRay;
 
 void render() {
 	static time_t begin, end;
 	
 	time(&begin);
-	myRay->render(myWorld);
+	render(*myRay,myWorld);
 	time(&end);
 
 	printf("%.f\n", difftime(end,begin));
@@ -113,9 +113,8 @@ void init (int argc, char** argv, GLint x, GLint y) {
 int main(int argc, char** argv)
 {
 	//myCamera = new Camera(Point(0,0,0),Point(-30,-40,32),Point(0,1,0),20,3000,30,1);
-	myCamera = new Camera(Point(0,0,0),Point(10,-10,10),Point(0,1,0),15,3000,30,0.3);
-	myRay = new RayTracer(*myCamera, Sampling::circle, 20, 1, 1, 0);
-	myRay->changeCamera(*myCamera);
+	myCamera = new Camera(Point(0,0,0),Point(10,-20,10),Point(0,1,0),30,3000,7,0.3);
+	myRay = new RayData<1,1,1,3>(*myCamera);
 	
 	/*myWorld.add(new Sphere(Point( 3, 3, 3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,1,1)));
 	myWorld.add(new Sphere(Point( 3, 3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.4,0.1,Color(1,1,0)));
@@ -128,18 +127,20 @@ int main(int argc, char** argv)
 
 	myWorld.add(new Cube(Point(0,0,0),Point(0,1,0), 6),Material(0, 0.5,100,0.4,0.1,Color(0,0,1)));*/
 
-	for (double i = -5; i < 6; i++)
-		for (double j = -5; j < 6; j++)
-			myWorld.add(new Cube(Point(2*i,0,2*j),Point(0,1,0), 0.8),Material(0, 0.5,100,0.4,0.1,Color((i+5)/10,(j-i)/10,(j+5)/10)));
+	MTRand random;
+	for (double i = -1; i < 2; i++)
+		for (double j = -1; j < 2; j++)
+			myWorld.add(new Cube(Point(2*i,0,2*j),Point(0,1,0), random() * 2),Material(0.4,0.5,0,100,0.1,Color(random(),random(),random())));
 
-	myWorld.add(new Cube(Point(0,80,0),Point(0,1,0), 159.5),Material(0, 0.5,100,0.4,0.1,Color(1,1,1)));
+//	myWorld.add(new Cube(Point(0,80,0),Point(0,1,0), 160),Material(Color(0.3,0.4,0.5),Color(0.5,0.4,0.3),0,100,0.1,Color(1,0.5,0.5)));
+//	myWorld.add(new Cube(Point(0,-1,0),Point(0,1,0), 1),Material(Color(0.5,0.4,0.3),Color(0.3,0.4,0.5),0,100,0.1,Color(0,0,1)));
 
-//	myWorld.add(new Sphere(Point(0,-20,12),Point(0,1,0), 0.5),Material(0, 0.5,50,0.5,0.8,Color(0,1,0)));
+//	myWorld.add(new Sphere(Point(0,0,0),Point(0,1,0), 1),Material(0, 0.5,50,0.5,0.8,Color(1,1,1)));
 //	myWorld.add(new Sphere(Point(-5,-6,10),Point(0,1,0), 0.5),Material(0, 0.5,50,0.5,0.8,Color(0,1,0)));
 
-	myWorld.add(Light(Point(0,-20,11),Color(1,1,1),250, 0.5));
-	myWorld.add(Light(Point(-5,-5,30),Color(1,1,1),1500, 3));
+	myWorld.add(Light(Point(5,-5,10),Color(1,1,1),400, 5));
+	myWorld.add(Light(Point(-5,-5,-10),Color(1,1,1),250, 3));
 
-	init (argc, argv, 200, 500);
+	init (argc, argv, 320, 240);
 	return 0;
 }
