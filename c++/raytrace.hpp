@@ -594,31 +594,10 @@ namespace RayTrace {
 		
 		if (data.changed)
 			prerender(data,world);
-
-		bool done = false;
-		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp parallel shared(data,done)
-		#endif
-		{
-			#ifndef RAYTRACE_NONPARALLEL
-			#pragma omp single
-			#endif
-			{
-				for (GLint i = 0; i < data.viewport[2]; i++)
-					for (GLint j = 0; j < data.viewport[3]; j++)
-						plot(data.buffer[i][j],i,j);
-				done = true;
-			}
-
-			#ifndef RAYTRACE_NONPARALLEL
-			#pragma omp single
-			#endif
-			{
-				while (!done)
-					glFlush();
-			}
-
-		}
+		for (GLint i = 0; i < data.viewport[2]; i++)
+			for (GLint j = 0; j < data.viewport[3]; j++)
+				plot(data.buffer[i][j],i,j);
+		glFlush();
 	}
 
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
@@ -795,7 +774,7 @@ namespace RayTrace {
 					}
 				}
 				tmp *= data.interreflections_compensation;
-				ret += ret * tmp;
+				ret += material.diffuse * (ret * tmp);
 			}
 
 		#ifdef RAYTRACE_CACHE
