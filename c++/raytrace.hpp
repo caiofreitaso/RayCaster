@@ -1,17 +1,129 @@
 #ifndef RAYTRACE_H
 #define RAYTRACE_H
 
-#include "GL/gl.h"
-#include "GL/glu.h"
+#ifndef RAYTRACE_NONPARALLEL
+#include <omp.h>
+#endif
 #include <math.h>
 #include <vector>
 #include <limits.h>
-#include <stdio.h>
+
+#include <iostream>
 #include <stdlib.h>
 #include "MersenneTwister.h"
 
-#ifndef RAYTRACE_NONPARALLEL
-#include <omp.h>
+#ifndef RAYTRACE_BRUTALMODE
+#include "GL/gl.h"
+#include "GL/glu.h"
+#else
+typedef double GLdouble;
+typedef int GLint;
+typedef unsigned GLuint;
+
+void multiply(GLdouble* d, GLdouble* r, GLdouble* l)
+{
+	d[0] =	r[0]*l[0]  + r[4]*l[1]  + r[8]*l[2]   + r[12]*l[3];
+	d[1] =	r[1]*l[0]  + r[5]*l[1]  + r[9]*l[2]   + r[13]*l[3];
+	d[2] =	r[2]*l[0]  + r[6]*l[1]  + r[10]*l[2]  + r[14]*l[3];
+	d[3] =	r[3]*l[0]  + r[7]*l[1]  + r[11]*l[2]  + r[15]*l[3];
+
+	d[4] =	r[0]*l[4]  + r[4]*l[5]  + r[8]*l[6]   + r[12]*l[7];
+	d[5] =	r[1]*l[4]  + r[5]*l[5]  + r[9]*l[6]   + r[13]*l[7];
+	d[6] =	r[2]*l[4]  + r[6]*l[5]  + r[10]*l[6]  + r[14]*l[7];
+	d[7] =  r[3]*l[4]  + r[7]*l[5]  + r[11]*l[6]  + r[15]*l[7];
+
+	d[8] =	r[0]*l[8]  + r[4]*l[9]  + r[8]*l[10]  + r[12]*l[11];
+	d[9] =	r[1]*l[8]  + r[5]*l[9]  + r[9]*l[10]  + r[13]*l[11];
+	d[10] =	r[2]*l[8]  + r[6]*l[9]  + r[10]*l[10] + r[14]*l[11];
+	d[11] =	r[3]*l[8]  + r[7]*l[9]  + r[11]*l[10] + r[15]*l[11];
+
+	d[12] =	r[0]*l[12] + r[4]*l[13] + r[8]*l[14]  + r[12]*l[15];
+	d[13] =	r[1]*l[12] + r[5]*l[13] + r[9]*l[14]  + r[13]*l[15];
+	d[14] =	r[2]*l[12] + r[6]*l[13] + r[10]*l[14] + r[14]*l[15];
+	d[15] =	r[3]*l[12] + r[7]*l[13] + r[11]*l[14] + r[15]*l[15];
+}
+
+void multiply4x1(GLdouble* d, GLdouble* r, GLdouble* l)
+{
+	d[0] =	r[0]*l[0]  + r[4]*l[1]  + r[8]*l[2]   + r[12]*l[3];
+	d[1] =	r[1]*l[0]  + r[5]*l[1]  + r[9]*l[2]   + r[13]*l[3];
+	d[2] =	r[2]*l[0]  + r[6]*l[1]  + r[10]*l[2]  + r[14]*l[3];
+	d[3] =	r[3]*l[0]  + r[7]*l[1]  + r[11]*l[2]  + r[15]*l[3];
+}
+
+GLint invert(GLdouble* d, GLdouble* m)
+{
+	GLdouble** helper = new GLdouble*[4];
+	GLdouble* tmp = 0;
+	
+	GLdouble val = 0;
+	
+	GLint i = 0, j = 0, k = 0;
+
+	for(; i < 4; i++) {
+		helper[i] = new GLdouble[8];
+		for(j = 0; j < 4; j++)
+			helper[i][j] = m[j*4+i];
+		for(; j < 8; j++)
+			helper[i][j] = (4*i+j-4) % 5 == 0;
+	}
+
+	for (i = 0; i < 4; i++) {
+		for (j = 3; j > i; j--)
+			if (fabs(helper[j][i]) > fabs(helper[j-1][i])) {
+				tmp = helper[j-1];
+				helper[j-1] = helper[j];
+				helper[j] = tmp;	
+			}
+		if (helper[i][i] == 0)
+			return 0;
+
+		val = helper[i][i];
+		for (j = 0; j < 8; j++)
+			helper[i][j] /= val;
+
+		for (k = 0; k < 4; k++) {
+			val = helper[k][i];
+			for (j = 0; j < 8; j++)
+				if (k != i && helper[i][j] != 0)
+					helper[k][j] -= helper[i][j] * val;
+		}
+	}
+
+	for(i = 0; i < 4; i++)
+		for(j = 0; j < 4; j++)
+			d[j*4+i] = helper[i][j+4];
+	return 1;
+}
+
+GLint UnProject(GLdouble winx, GLdouble winy, GLdouble winz,
+				GLdouble *modelview, GLdouble *projection, GLint *viewport,
+				GLdouble *x, GLdouble* y, GLdouble* z)
+{
+	GLdouble inverse[16], A[16];
+	GLdouble in[4], out[4];
+	multiply(A, projection, modelview);
+
+	if(!invert(inverse, A))
+		return 0;
+
+	in[0]=(winx-(GLdouble)viewport[0])/(GLdouble)viewport[2]*2.0-1.0;
+	in[1]=(winy-(GLdouble)viewport[1])/(GLdouble)viewport[3]*2.0-1.0;
+	in[2]=2.0*winz-1.0;
+	in[3]=1.0;
+	
+	multiply4x1(out, inverse, in);
+	
+	if(out[3] == 0)
+		return 0;
+	out[3] = 1.0/out[3];
+	
+	*x = out[0]*out[3];
+	*y = out[1]*out[3];
+	*z = out[2]*out[3];
+	
+	return 1;
+}
 #endif
 
 namespace RayTrace {
@@ -59,9 +171,13 @@ inline bool operator!=(RayTrace::Color a, RayTrace::Color b);
 inline RayTrace::Color&	operator+=(RayTrace::Color& a, RayTrace::Color b);
 inline RayTrace::Color&	operator*=(RayTrace::Color& a, GLdouble b);
 
+const GLdouble MATH_PI = 3.14159265359;
+const GLdouble MATH_2PI = 6.28318530718;
+
 namespace RayTrace {
 
 	const GLdouble PRECISION = 0.0000001;
+	const GLdouble SUBPRECISION = 0.01;
 	namespace Sampling {
 		enum format {
 			square,
@@ -84,7 +200,7 @@ namespace RayTrace {
 						#pragma omp critical
 						#endif
 						{
-							ret[0][i] = 6.28318530718 * random.rand();
+							ret[0][i] = MATH_2PI * random.rand();
 							ret[1][i] = random.rand() + random.rand();
 						}
 						if (ret[1][i] > 1)
@@ -121,21 +237,6 @@ namespace RayTrace {
 
 			return ret;
 		}
-
-		const GLdouble square_x[] = { 0, -0.5, 0.5,  0.5, -0.5,
-										  0,   0.5,  0,   -0.5 };
-		const GLdouble square_y[] = { 0,  0.5, 0.5, -0.5, -0.5,
-										  0.5, 0,   -0.5,  0 };
-		const GLdouble circle_x[] = { 0, -0.3535533906, 0.3535533906,
-									   0.3535533906, -0.3535533906,
-									  0, 0.5, 0, -0.5 };
-		const GLdouble circle_y[] = { 0, 0.3535533906, 0.3535533906,
-									  -0.3535533906, -0.3535533906,
-									  0.5, 0, -0.5, 0 };
-		const GLdouble hexagon_x[] = { 0, -0.4330127019, 0.4330127019,
-									   0.4330127019, -0.4330127019,
-									   0, 0 };
-		const GLdouble hexagon_y[] = { 0, 0.25, 0.25, -0.25, -0.25, 0.5, -0.5 };
 	};
 
 	struct Color
@@ -413,12 +514,12 @@ namespace RayTrace {
 			y = x % normal;
 
 			if (random)
-				points = Sampling::getPoints(Sampling::circle, sampling, twister);
+				points = Sampling::getPoints(Sampling::circle, sampling-1, twister);
 			else
-				points = Sampling::getPoints(Sampling::circle, sampling);
+				points = Sampling::getPoints(Sampling::circle, sampling-1);
 
 			for (GLuint i = 1; i < sampling; i++)
-				ret[i] = position + points[0][i]*radius*x + points[1][i]*radius*y;
+				ret[i] = position + points[0][i-1]*radius*x + points[1][i-1]*radius*y;
 
 			delete[] points[0];
 			delete[] points[1];
@@ -478,6 +579,7 @@ namespace RayTrace {
 		}
 	};
 
+	#ifndef RAYTRACE_BRUTALMODE
 	void plot(Color c, GLdouble x, GLdouble y)
 	{
 		glMatrixMode(GL_MODELVIEW);
@@ -491,6 +593,7 @@ namespace RayTrace {
 		glVertex2d(x+1, y);
 		glEnd();
 	}
+	#endif
 
 	template<GLuint antialias, GLuint depthRays, GLuint shadows, GLuint interreflections>
 	struct RayData
@@ -526,6 +629,7 @@ namespace RayTrace {
 		void refreshCamera()
 		{
 			changed = true;
+			#ifndef RAYTRACE_BRUTALMODE
 			static GLdouble m[16], p[16];
 			glGetDoublev (GL_MODELVIEW_MATRIX, m);
 			glGetDoublev (GL_PROJECTION_MATRIX, p);
@@ -549,7 +653,56 @@ namespace RayTrace {
 
 			glMatrixMode(GL_PROJECTION);
 			glLoadIdentity();
-			glMultMatrixd(p);			
+			glMultMatrixd(p);
+			#else
+			Point x,y,z;
+			z = (camera.lookFrom - camera.lookAt).unitary();
+			x = (camera.up % z).unitary();
+			y = z % x;
+			modelview[0] = x.x;
+			modelview[1] = y.x;
+			modelview[2] = z.x;
+			modelview[3] = 0;
+
+			modelview[4] = x.y;
+			modelview[5] = y.y;
+			modelview[6] = z.y;
+			modelview[7] = 0;
+
+			modelview[8] = x.z;
+			modelview[9] = y.z;
+			modelview[10] = z.z;
+			modelview[11] = 0;
+
+			modelview[12] = 0;
+			modelview[13] = 0;
+			modelview[14] = -(camera.lookFrom - camera.lookAt).length();
+			modelview[15] = 1;
+
+			GLdouble tangent = tanf(camera.fovY/2 * (MATH_PI/180));
+			GLdouble height = camera.near * tangent;
+			GLdouble width = height * ((GLdouble) viewport[2]/viewport[3]);
+
+			projection[0] = camera.near/width;
+			projection[1] = 0;
+			projection[2] = 0;
+			projection[3] = 0;
+
+			projection[4] = 0;
+			projection[5] = camera.near/height;
+			projection[6] = 0;
+			projection[7] = 0;
+
+			projection[8] = 0;
+			projection[9] = 0;
+			projection[10] = -(camera.far + camera.near)/(camera.far - camera.near);
+			projection[11] = -1;
+
+			projection[12] = 0;
+			projection[13] = 0;
+			projection[14] = -(2 * camera.far * camera.near)/(camera.far - camera.near);
+			projection[15] = 0;
+			#endif
 		}
 
 		void changeCamera(Camera& c)
@@ -558,23 +711,38 @@ namespace RayTrace {
 			refreshCamera();
 		}
 
-		void init()
+		void init(GLint width = 0, GLint height = 0)
 		{
+			#ifndef RAYTRACE_BRUTALMODE
+			if (width) {
+				glViewport (0, 0, width, height);
+				glMatrixMode(GL_PROJECTION);
+				glLoadIdentity();
+				glOrtho(0, width, 0, height, 0, 100);
+			}
 			glGetIntegerv (GL_VIEWPORT, viewport);
+			#else
+			viewport[0] = viewport[1] = 0;
+			viewport[2] = width;
+			viewport[3] = height;
+			#endif
 			refreshCamera();
+
 			buffer = new Color*[viewport[2]];
 			for (GLint i = 0; i < viewport[2]; i++)
 				buffer[i] = new Color[viewport[3]];
-			
+
+			#ifndef RAYTRACE_BRUTALMODE
 			glMatrixMode(GL_MODELVIEW);
+			#endif
 		}
 
-		void refresh()
+		void refresh(GLint width = 0, GLint height = 0)
 		{
 			for (GLint i = 0; i < viewport[2]; i++)
 				delete[] buffer[i];
 			delete[] buffer;
-			init();
+			init(width,height);
 		}
 	};
 
@@ -586,6 +754,25 @@ namespace RayTrace {
 	};
 	#endif
 
+
+	template<GLuint AA, GLuint D, GLuint S, GLuint I>
+	inline Ray getRay(RayData<AA,D,S,I>& data, GLdouble x, GLdouble y)
+	{
+		Point end;
+		GLdouble di = x, dj = data.viewport[3];
+		#ifndef RAYTRACE_BRUTALMODE
+		dj -= y+1;
+		gluUnProject(di, dj, 0, data.modelview, data.projection, data.viewport,
+					 &end.x, &end.y, &end.z);
+		#else
+		UnProject(di, dj, 0, data.modelview, data.projection, data.viewport,
+				  &end.x, &end.y, &end.z);
+		#endif
+		
+		return Line(data.camera.lookFrom,end).toRay(data.camera.far);
+	}
+
+	#ifndef RAYTRACE_BRUTALMODE
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
 	void render(RayData<AA,D,S,I>& data, World const& world)
 	{
@@ -597,7 +784,31 @@ namespace RayTrace {
 		for (GLint i = 0; i < data.viewport[2]; i++)
 			for (GLint j = 0; j < data.viewport[3]; j++)
 				plot(data.buffer[i][j],i,j);
+
 		glFlush();
+	}
+	#endif
+
+	template<GLuint AA, GLuint D, GLuint S, GLuint I>
+	void print(RayData<AA,D,S,I>& data, World const& world)
+	{
+		static char ASCII_ART[65] = " `-.'~,\";!+<r?/|)icvlI1}]unxzjftLCJUYXZO0Qoahkbdpqwm*WMB8&%$=#@";
+
+		if (data.changed)
+			prerender(data,world);
+		if (!system("clear"))
+			for (GLint i = (data.viewport[3]-1)/2; i >= 0; i--) {
+				for (GLint j = 0; j < data.viewport[2]; j++) {
+					Color target = (data.buffer[j][2*i] + data.buffer[j][2*i+1])/2;
+					GLdouble luma = 0.2126 * target.red + 0.7152 * target.green + 0.0722 * target.blue;
+					GLint index = luma >= 1 ? 63 : luma/0.015625;
+
+
+					std::cout << ASCII_ART[index];
+				}
+				std::cout << "\n";
+			}
+		std::cout << data.viewport[2] << "x"<<data.viewport[3]<<"\n";
 	}
 
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
@@ -612,10 +823,18 @@ namespace RayTrace {
 		static RayCache cache;
 		#endif
 
+		static bool done = false;
+		static GLdouble** circle = Sampling::getPoints(Sampling::circle,AA);
+		if (!done) {
+			for (GLuint i = 0; i < AA; i++) {
+				circle[0][i] *= 0.5;
+				circle[1][i] *= 0.5;
+			}
+			done = true;
+		}
+		
+		#ifndef RAYTRACE_CACHE
 		#ifndef RAYTRACE_NONPARALLEL
-		#ifdef RAYTRACE_CACHE
-		#pragma omp parallel for schedule(static) private(tmp,ray,intersected,end,depth) shared(cache)
-		#else
 		#pragma omp parallel for schedule(static) private(tmp,ray,intersected,end,depth)
 		#endif
 		#endif
@@ -623,9 +842,15 @@ namespace RayTrace {
 			for (GLint j = 0; j < data.viewport[3]; j++) {
 				tmp = black;
 				for (GLuint k = 0; k < AA; k++) {
-					gluUnProject(i+Sampling::circle_x[k],data.viewport[3]-j-1+Sampling::circle_y[k],
+					#ifndef RAYTRACE_BRUTALMODE
+					gluUnProject(i + circle[0][k], data.viewport[3]-j-1+circle[1][k],
 								 0, data.modelview, data.projection, data.viewport,
 								 &end.x, &end.y, &end.z);
+					#else
+					UnProject(i + circle[0][k], data.viewport[3]-j-1+circle[1][k],
+							  0, data.modelview, data.projection, data.viewport,
+							  &end.x, &end.y, &end.z);
+					#endif
 
 					intersectionPoints(depth,D,data.camera.lookFrom,end,
 									   data.camera.lensHeight,false);
@@ -639,8 +864,8 @@ namespace RayTrace {
 							tmp += propagateRay(data,world,ray,intersected);
 							#endif
 					}
-					tmp *= data.compensation;
 				}
+				tmp *= data.compensation;
 				data.buffer[i][j] = tmp;
 			}
 		data.changed = false;
@@ -654,15 +879,20 @@ namespace RayTrace {
 	#endif
 	{
 		Color ret;
+
 		#ifdef RAYTRACE_CACHE
-		bool found = false;
-		for (GLuint i = 0; i < cache.intersections.size() && !found; i++)
-			if (result.where == cache.intersections[i]) {
-				ret = cache.colors[i];
-				found = true;
+		GLdouble found = 0;
+		for (GLuint k = 0; k < cache.intersections.size(); k++)
+			if (fabs(result.where.x - cache.intersections[k].x) < PRECISION &&
+				fabs(result.where.y - cache.intersections[k].y) < PRECISION &&
+				fabs(result.where.z - cache.intersections[k].z) < PRECISION) {
+				found++;
+				ret += cache.colors[k];
 			}
-		if (found)
+		if (found > 0) {
+			ret *= 1/found;
 			return ret;
+		}
 		#endif
 
 		Material material = world.materials[world.objects[result.index]->material];
@@ -690,7 +920,7 @@ namespace RayTrace {
 			
 			ret *= 1 - material.reflection;
 
-			if (tmpRay.strength/data.camera.far > 0.01)
+			if (tmpRay.strength/data.camera.far > SUBPRECISION)
 				if (tmpIntsc.length > 0)
 					if (tmpIntsc.where != result.where)
 						#ifdef RAYTRACE_CACHE
@@ -706,13 +936,18 @@ namespace RayTrace {
 
 			intersectionPoints(points, S, world.lights[i].position,
 							   result.where, world.lights[i].radius);
+			#ifndef RAYTRACE_CACHE
+			#ifndef RAYTRACE_NONPARALLEL
+			#pragma omp parallel for schedule(static) private(tmpRay,tmpIntsc) reduction(+:str,str2)
+			#endif
+			#endif
 			for (GLuint k = 0; k < S; k++) {
 				Point light = points[k] - result.where;
-				Ray shadow = Line(points[k],result.where).toRay(world.lights[i].intensity);
+				tmpRay = Line(points[k],result.where).toRay(world.lights[i].intensity);
 
-				Intersection isShadow = world.intersect(shadow);
+				tmpIntsc = world.intersect(tmpRay);
 				
-				if (isShadow.where == result.where)
+				if (tmpIntsc.where == result.where)
 				{
 					GLdouble iLight = world.lights[i].intensity / (light.length() * light.length());
 
@@ -735,8 +970,8 @@ namespace RayTrace {
 			}
 			str *= data.shadows_compensation;
 			str2 *= data.shadows_compensation;
-			ret += ((str * (1 - material.reflection)) * material.diffuse * world.lights[i].color) *
-					material.color + (str2 * world.lights[i].color * material.specular);
+			ret += ((str * (1 - material.reflection)) * (material.diffuse * world.lights[i].color)) *
+					material.color + (str2 * (world.lights[i].color * material.specular));
 		}
 
 		for(GLuint i = 0; i < world.objects.size(); i++)
@@ -745,46 +980,45 @@ namespace RayTrace {
 				intersectionPoints(points, I, world.objects[i]->position,
 								   result.where, world.objects[i]->scale,false);
 				for(GLuint j = 0; j < I; j++) {
-					tmpLine = Line(result.where,points[j]); 
-					tmpRay = tmpLine.toRay(ray.strength);
+					tmpRay = Line(result.where,points[j]).toRay(ray.strength);
 					tmpIntsc = world.intersect(tmpRay);
 
 					tmpRay.strength -= tmpIntsc.length;
 					tmpRay.strength *= fmax(fmax(material.diffuse.blue,material.diffuse.red),
 											material.diffuse.green);
 					
-					if (tmpRay.strength/data.camera.far > 0.01) {
-						str = result.normal * (tmpIntsc.where - result.where).unitary();
+					if (tmpRay.strength/data.camera.far > SUBPRECISION) {
+						Point there = tmpIntsc.where - result.where;
+						str = result.normal * there.unitary();
 						if (str > 0) {
+							//str /= there.length() * there.length();
+							Color back;
 							#ifdef RAYTRACE_CACHE
-							found = false;
-							for (GLuint k = 0; k < cache.intersections.size() && !found; k++)
-								if (fabs(result.where.x - cache.intersections[k].x) < 0.001 &&
-									fabs(result.where.y - cache.intersections[k].y) < 0.001 &&
-									fabs(result.where.z - cache.intersections[k].z) < 0.001) {
-									found = true;
-									tmp += str * cache.colors[k];
+							found = 0;
+							for (GLuint k = 0; k < cache.intersections.size(); k++)
+								if (fabs(tmpIntsc.where.x - cache.intersections[k].x) < SUBPRECISION &&
+									fabs(tmpIntsc.where.y - cache.intersections[k].y) < SUBPRECISION &&
+									fabs(tmpIntsc.where.z - cache.intersections[k].z) < SUBPRECISION) {
+									found++;
+									back += cache.colors[k];
 								}
-							if (!found)
-								tmp += str * propagateRay(cache,data,world,tmpRay,tmpIntsc);
+							back *= 1/found;
+							if (found == 0)
+								back = propagateRay(cache,data,world,tmpRay,tmpIntsc);
 							#else
-								tmp += str * propagateRay(data,world,tmpRay,tmpIntsc);
+								back = propagateRay(data,world,tmpRay,tmpIntsc);
 							#endif
+							tmp += str * back;
 						}
 					}
 				}
 				tmp *= data.interreflections_compensation;
-				ret += material.diffuse * (ret * tmp);
+				ret += material.diffuse * material.color * tmp;
 			}
-
+		
 		#ifdef RAYTRACE_CACHE
-		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp critical
-		#endif
-		{
-			cache.intersections.push_back(result.where);
-			cache.colors.push_back(ret);
-		}
+		cache.intersections.push_back(result.where);
+		cache.colors.push_back(ret);
 		#endif
 
 		ret *= (data.camera.far-result.length)/data.camera.far;
@@ -800,16 +1034,6 @@ namespace RayTrace {
 	#endif
 	{
 		Color ret;
-		#ifdef RAYTRACE_CACHE
-		bool found = false;
-		for (GLuint i = 0; i < cache.intersections.size() && !found; i++)
-			if (result.where == cache.intersections[i]) {
-				ret = cache.colors[i];
-				found = true;
-			}
-		if (found)
-			return ret;
-		#endif
 
 		Material material = world.materials[world.objects[result.index]->material];
 		ret = material.color * world.ambientIntensity * material.ambient;
@@ -836,7 +1060,7 @@ namespace RayTrace {
 			
 			ret *= 1 - material.reflection;
 
-			if (tmpRay.strength/data.camera.far > 0.01)
+			if (tmpRay.strength/data.camera.far > SUBPRECISION)
 				if (tmpIntsc.length > 0)
 					if (tmpIntsc.where != result.where)
 						#ifdef RAYTRACE_CACHE
