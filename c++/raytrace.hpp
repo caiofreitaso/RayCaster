@@ -111,6 +111,8 @@ namespace RayTrace {
 		Point unitary() { return *this/length(); }
 	};
 
+	const Point origin;
+
 	struct Ray
 	{
 		Point origin, direction;
@@ -183,17 +185,17 @@ namespace RayTrace {
 		Point position;
 		Point up;
 		GLint material;
+		GLdouble scale;
 
-		Object(Point pos, Point up, GLint material):position(pos),up(up),material(material) { }
+		Object(Point pos, Point up, GLint material, GLdouble scale)
+		: position(pos),up(up),material(material),scale(scale) { }
 		virtual Intersection intersect(Ray const&) = 0;
 	};
 
 	struct Cube : Object
 	{
-		GLdouble side;
-
 		Cube (Point pos, Point up, GLdouble side)
-		: Object(pos,up,0), side(side) { }
+		: Object(pos,up,0,side) { }
 
 		Intersection intersect(Ray const& ray)
 		{
@@ -201,14 +203,14 @@ namespace RayTrace {
 			ret.length = -1;
 
 			Point vertices[8];
-			vertices[0] = position + Point(side/2,side/2,-side/2);
-			vertices[1] = position + Point(side/2,side/2,side/2);
-			vertices[2] = position + Point(-side/2,side/2,-side/2);
-			vertices[3] = position + Point(-side/2,side/2,side/2);
-			vertices[4] = position + Point(-side/2,-side/2,side/2);
-			vertices[5] = position + Point(side/2,-side/2,side/2);
-			vertices[6] = position + Point(side/2,-side/2,-side/2);
-			vertices[7] = position + Point(-side/2,-side/2,-side/2);
+			vertices[0] = position + Point(scale/2,scale/2,-scale/2);
+			vertices[1] = position + Point(scale/2,scale/2,scale/2);
+			vertices[2] = position + Point(-scale/2,scale/2,-scale/2);
+			vertices[3] = position + Point(-scale/2,scale/2,scale/2);
+			vertices[4] = position + Point(-scale/2,-scale/2,scale/2);
+			vertices[5] = position + Point(scale/2,-scale/2,scale/2);
+			vertices[6] = position + Point(scale/2,-scale/2,-scale/2);
+			vertices[7] = position + Point(-scale/2,-scale/2,-scale/2);
 
 			intersectPlane(vertices[3],vertices[1],vertices[2], ray, ret); //top
 			intersectPlane(vertices[6],vertices[5],vertices[7], ray, ret); //bottom
@@ -234,9 +236,9 @@ namespace RayTrace {
 					Point p(ray.origin + numerator*ray.direction);
 					Point q(p - position);
 
-					GLdouble x = fabs(q.x)-side/2;
-					GLdouble y = fabs(q.y)-side/2;
-					GLdouble z = fabs(q.z)-side/2;
+					GLdouble x = fabs(q.x)-scale/2;
+					GLdouble y = fabs(q.y)-scale/2;
+					GLdouble z = fabs(q.z)-scale/2;
 
 					if (x > PRECISION || y > PRECISION || z > PRECISION)
 						return;
@@ -253,10 +255,8 @@ namespace RayTrace {
 
 	struct Sphere : Object
 	{
-		GLdouble radius;
-
 		Sphere(Point pos, Point up, GLdouble radius)
-		: Object(pos,up,0), radius(radius) { }
+		: Object(pos,up,0,radius) { }
 
 		Intersection intersect(Ray const& ray)
 		{
@@ -264,7 +264,7 @@ namespace RayTrace {
 
 			GLdouble b = ray.direction * oc;
 			GLdouble c = oc * oc;
-			GLdouble delta = b*b - c + radius*radius;
+			GLdouble delta = b*b - c + scale*scale;
 
 			Intersection ret;
 			ret.length = -1;
@@ -294,7 +294,7 @@ namespace RayTrace {
 
 				ret.where = solutions[i];
 				ret.length = lengths[i];
-				ret.normal = (solutions[i] - position)/radius;
+				ret.normal = (solutions[i] - position)/scale;
 			}
 
 			return ret;
@@ -339,6 +339,24 @@ namespace RayTrace {
 		}
 	};
 
+	Point* intersectionPoints(GLuint sampling, Point position, Point where, GLdouble radius)
+	{
+		Point* ret = new Point[sampling];
+		ret[0] = position;
+		if (sampling > 1) {
+			Point normal = (position - where).unitary();
+			Point x = Point(1,0,0) * normal == 0 ?
+					  Point(0,0,1) - (Point(0,0,1)*normal)*normal :
+					  Point(1,0,0) - (Point(1,0,0)*normal)*normal;
+			Point y = x % normal;
+
+			GLdouble** points = Sampling::getPoints(Sampling::circle, sampling);
+			for (GLuint i = 1; i < sampling; i++)
+				ret[i] = position + points[0][i]*radius*x + points[1][i]*radius*y;
+		}
+
+		return ret;
+	}
 
 	struct World {
 		std::vector<Object*> objects;
@@ -550,43 +568,52 @@ namespace RayTrace {
 			{
 				Material material = world.materials[world.objects[result.index]->material];
 				Color ret = material.color * world.ambientIntensity * material.ambient;
+				
 				GLdouble compensation = softShadows;
 				compensation = 1/compensation;
 
+				Color tmp;
+				Ray tmpRay(origin,origin);
+				Intersection tmpIntsc;
+
 				if (material.reflection > 0) {
 					Point origin = ray.origin.unitary();
-
-					Line l = Line(result.where, result.where + ray.strength * ((2*(result.normal*origin)) * result.normal - origin));
 					//printf("%f %f %f -> %f %f %f\n", l.origin.x, l.origin.y, l.origin.z, l.destiny.x, l.destiny.y, l.destiny.z);
-					Ray reflected = l.toRay(ray.strength);
+					tmpRay = Line(result.where, result.where + ray.strength * ((2*(result.normal*origin)) * result.normal - origin)).toRay(ray.strength);
 
-					Intersection reflection = world.intersect(reflected);
+					tmpIntsc = world.intersect(tmpRay);
 
-					reflected.strength -= reflection.length;
-					reflected.strength *= material.reflection;
+					tmpRay.strength -= tmpIntsc.length;
+					tmpRay.strength *= material.reflection;
 					
 					ret *= 1 - material.reflection;
 
-					if (reflection.index >= 0)
-						if (reflection.where != result.where)
-							ret += (material.reflection) * shade(world,reflected,reflection);
+					if (tmpIntsc.index >= 0)
+						if (tmpIntsc.where != result.where)
+							ret += (material.reflection) * shade(world,tmpRay,tmpIntsc);
 				}
-
+				
 				for(GLuint i = 0; i < world.objects.size(); i++) {
-					Line diffuse = Line(world.objects[i]->position, result.where);
-					Ray diffuseRay = diffuse.toRay(ray.strength);
-					Intersection obj = world.intersect(diffuseRay);
-					if (obj.index >= 0)
-						if (obj.where != result.where) {
-							diffuseRay.strength -= obj.length;
-							diffuseRay.strength *= material.diffuse;
-							ret += (material.ambient/(obj.length*obj.length)) * shade(world,diffuseRay,obj);
-						}
+					tmp = black;
+					Point* points = intersectionPoints(2, world.objects[i]->position,
+						result.where,world.objects[i]->scale);
+					for(GLuint j = 0; j < 2; j++) {
+						tmpRay = Line(result.where,points[j]).toRay(ray.strength);
+						tmpIntsc = world.intersect(tmpRay);
+						if (tmpIntsc.index >= 0)
+							if (tmpIntsc.where != result.where) {
+								tmpRay.strength -= tmpIntsc.length;
+								tmpRay.strength *= material.specular*material.diffuse;
+								tmp += (material.specular) * shade(world,tmpRay,tmpIntsc);
+							}
+					}
+					tmp *= 0.5;
+					ret += tmp;
 				}
 				
 				for (GLuint i = 0; i < world.lights.size(); i++) {
 					GLdouble str;
-					Color tmp = black;
+					tmp = black;
 
 					Point* lights = world.lights[i].intersectionPoints(softShadows,result.where);
 					for (GLint k = 0; k < softShadows; k++) {

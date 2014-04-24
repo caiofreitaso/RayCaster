@@ -104,7 +104,7 @@ int main(int argc, char** argv)
 	//myWorld.add(new Sphere(Point(-3,3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,1)));
 	//myWorld.add(new Sphere(Point(-3,3,-3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,1,0)));
 	//myWorld.add(new Sphere(Point(-3,-3,3),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
-	myWorld.add(new Sphere(Point(0,-2,0),Point(0,1,0), 2),Material(0, 0.5,50,0.5,0.8,Color(1,1,1)));
+	myWorld.add(new Sphere(Point(0,-2,0),Point(0,1,0), 2),Material(0.7, 0.5,50,0.5,0.8,Color(1,0,0)));
 
 	myWorld.add(new Cube(Point(0,40,0),Point(0,1,0), 80),Material(0, 0.5,50,0.5,0.1,Color(0,0,1)));
 
