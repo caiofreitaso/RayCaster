@@ -499,11 +499,6 @@ namespace RayTrace {
 		GLdouble shadows_compensation;
 		GLdouble interreflections_compensation;
 
-		#ifdef RAYTRACE_CACHE
-		std::vector<Point> intersections;
-		std::vector<Color> colors;
-		#endif
-
 		GLdouble modelview[16], projection[16];
 		GLint viewport[4];
 
@@ -517,7 +512,7 @@ namespace RayTrace {
 		: compensation(1/((GLdouble)(antialias * depthRays))),
 		  shadows_compensation(1/((GLdouble)shadows)),
 		  interreflections_compensation(1/((GLdouble)interreflections)),
-		  buffer(0),changed(false)
+		  buffer(0),camera(Camera(origin,origin,origin,0,0,0,0)),changed(false)
 		{ }
 		RayData(Camera c)
 		: compensation(1/((GLdouble)(antialias * depthRays))),
@@ -583,7 +578,13 @@ namespace RayTrace {
 		}
 	};
 
-	typedef RayData<1,1,1,0> SimpleRT;
+	#ifdef RAYTRACE_CACHE
+	struct RayCache
+	{
+		std::vector<Point> intersections;
+		std::vector<Color> colors;
+	};
+	#endif
 
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
 	void render(RayData<AA,D,S,I>& data, World const& world)
@@ -593,11 +594,31 @@ namespace RayTrace {
 		
 		if (data.changed)
 			prerender(data,world);
-		for (GLint i = 0; i < data.viewport[2]; i++)
-			for (GLint j = 0; j < data.viewport[3]; j++)
-				plot(data.buffer[i][j],i,j);
 
-		glFlush();
+		bool done = false;
+		#ifndef RAYTRACE_NONPARALLEL
+		#pragma omp parallel shared(data,done)
+		#endif
+		{
+			#ifndef RAYTRACE_NONPARALLEL
+			#pragma omp single
+			#endif
+			{
+				for (GLint i = 0; i < data.viewport[2]; i++)
+					for (GLint j = 0; j < data.viewport[3]; j++)
+						plot(data.buffer[i][j],i,j);
+				done = true;
+			}
+
+			#ifndef RAYTRACE_NONPARALLEL
+			#pragma omp single
+			#endif
+			{
+				while (!done)
+					glFlush();
+			}
+
+		}
 	}
 
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
@@ -608,9 +629,16 @@ namespace RayTrace {
 		static Ray ray;
 		static Color tmp;
 		static Intersection intersected;
+		#ifdef RAYTRACE_CACHE
+		static RayCache cache;
+		#endif
 
 		#ifndef RAYTRACE_NONPARALLEL
+		#ifdef RAYTRACE_CACHE
+		#pragma omp parallel for schedule(static) private(tmp,ray,intersected,end,depth) shared(cache)
+		#else
 		#pragma omp parallel for schedule(static) private(tmp,ray,intersected,end,depth)
+		#endif
 		#endif
 		for (GLint i = 0; i < data.viewport[2]; i++)
 			for (GLint j = 0; j < data.viewport[3]; j++) {
@@ -626,7 +654,11 @@ namespace RayTrace {
 						ray = Line(depth[r],end).toRay(data.camera.far);
 						intersected = world.intersect(ray);
 						if (intersected.length > PRECISION)
+							#ifdef RAYTRACE_CACHE
+							tmp += propagateRay(cache,data,world,ray,intersected);
+							#else
 							tmp += propagateRay(data,world,ray,intersected);
+							#endif
 					}
 					tmp *= data.compensation;
 				}
@@ -636,21 +668,20 @@ namespace RayTrace {
 	}
 
 	template<GLuint AA, GLuint D, GLuint S, GLuint I>
+	#ifdef RAYTRACE_CACHE
+	Color propagateRay(RayCache& cache, RayData<AA,D,S,I>& data, World const& world, Ray ray, Intersection result)
+	#else
 	Color propagateRay(RayData<AA,D,S,I>& data, World const& world, Ray ray, Intersection result)
+	#endif
 	{
 		Color ret;
 		#ifdef RAYTRACE_CACHE
 		bool found = false;
-		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp critical
-		#endif
-		{
-			for (GLuint i = 0; i < data.intersections.size() && !found; i++)
-				if (result.where == data.intersections[i]) {
-					ret = data.colors[i];
-					found = true;
-				}
-		}
+		for (GLuint i = 0; i < cache.intersections.size() && !found; i++)
+			if (result.where == cache.intersections[i]) {
+				ret = cache.colors[i];
+				found = true;
+			}
 		if (found)
 			return ret;
 		#endif
@@ -683,7 +714,12 @@ namespace RayTrace {
 			if (tmpRay.strength/data.camera.far > 0.01)
 				if (tmpIntsc.length > 0)
 					if (tmpIntsc.where != result.where)
+						#ifdef RAYTRACE_CACHE
+						ret += (material.reflection) * propagateRay(cache,data,world,tmpRay,tmpIntsc);
+						#else
 						ret += (material.reflection) * propagateRay(data,world,tmpRay,tmpIntsc);
+						#endif
+
 		}
 
 		for (GLuint i = 0; i < world.lights.size(); i++) {
@@ -743,21 +779,18 @@ namespace RayTrace {
 						if (str > 0) {
 							#ifdef RAYTRACE_CACHE
 							found = false;
-							#ifndef RAYTRACE_NONPARALLEL
-							#pragma omp critical
-							#endif
-							{
-								for (GLuint k = 0; k < data.intersections.size() && !found; k++)
-									if (fabs(result.where.x - data.intersections[k].x) < 0.001 &&
-										fabs(result.where.y - data.intersections[k].y) < 0.001 &&
-										fabs(result.where.z - data.intersections[k].z) < 0.001) {
-										found = true;
-										tmp += str * data.colors[k];
-									}
-							}
+							for (GLuint k = 0; k < cache.intersections.size() && !found; k++)
+								if (fabs(result.where.x - cache.intersections[k].x) < 0.001 &&
+									fabs(result.where.y - cache.intersections[k].y) < 0.001 &&
+									fabs(result.where.z - cache.intersections[k].z) < 0.001) {
+									found = true;
+									tmp += str * cache.colors[k];
+								}
 							if (!found)
-							#endif
+								tmp += str * propagateRay(cache,data,world,tmpRay,tmpIntsc);
+							#else
 								tmp += str * propagateRay(data,world,tmpRay,tmpIntsc);
+							#endif
 						}
 					}
 				}
@@ -770,8 +803,8 @@ namespace RayTrace {
 		#pragma omp critical
 		#endif
 		{
-			data.intersections.push_back(result.where);
-			data.colors.push_back(ret);
+			cache.intersections.push_back(result.where);
+			cache.colors.push_back(ret);
 		}
 		#endif
 
@@ -781,21 +814,20 @@ namespace RayTrace {
 	}
 
 	template<GLuint AA, GLuint D, GLuint S>
+	#ifdef RAYTRACE_CACHE
+	Color propagateRay(RayCache& cache, RayData<AA,D,S,0>& data, World const& world, Ray ray, Intersection result)
+	#else
 	Color propagateRay(RayData<AA,D,S,0>& data, World const& world, Ray ray, Intersection result)
+	#endif
 	{
 		Color ret;
 		#ifdef RAYTRACE_CACHE
 		bool found = false;
-		for (GLuint i = 0; i < data.intersections.size() && !found; i++)
-		#ifndef RAYTRACE_NONPARALLEL
-		#pragma omp critical
-		#endif
-		{
-			if (result.where == data.intersections[i]) {
-				ret = data.colors[i];
+		for (GLuint i = 0; i < cache.intersections.size() && !found; i++)
+			if (result.where == cache.intersections[i]) {
+				ret = cache.colors[i];
 				found = true;
 			}
-		}
 		if (found)
 			return ret;
 		#endif
@@ -828,7 +860,11 @@ namespace RayTrace {
 			if (tmpRay.strength/data.camera.far > 0.01)
 				if (tmpIntsc.length > 0)
 					if (tmpIntsc.where != result.where)
+						#ifdef RAYTRACE_CACHE
+						ret += (material.reflection) * propagateRay(cache,data,world,tmpRay,tmpIntsc);
+						#else
 						ret += (material.reflection) * propagateRay(data,world,tmpRay,tmpIntsc);
+						#endif
 		}
 
 		for (GLuint i = 0; i < world.lights.size(); i++) {
@@ -874,8 +910,8 @@ namespace RayTrace {
 		#pragma omp critical
 		#endif
 		{
-			data.intersections.push_back(result.where);
-			data.colors.push_back(ret);
+			cache.intersections.push_back(result.where);
+			cache.colors.push_back(ret);
 		}
 		#endif
 
